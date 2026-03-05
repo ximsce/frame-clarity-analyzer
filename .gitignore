@@ -1,0 +1,22 @@
+# Python / virtualenv
+__pycache__/
+*.py[cod]
+*.pyc
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# macOS
+.DS_Store
+
+# Editor / tooling
+.idea/
+.vscode/
+.cursor/
+
+# Local data and outputs
+frame_analysis_results.json
+frame_analysis_progress.json
+clearest_frames/

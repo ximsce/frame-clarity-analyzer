@@ -1,0 +1,4 @@
+openai>=1.0.0
+torch==2.1.1
+transformers<4.37
+pillow>=9.0.0
