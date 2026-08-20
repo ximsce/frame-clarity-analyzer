@@ -5,6 +5,13 @@ context: |
   Purpose: Rank pre-extracted video-frame images by perceived visual clarity and
     copy the strongest candidates for review or downstream use.
 
+  Business context: BUSINESS_CONTEXT.md is the canonical business brief for
+    Wedding Glamour's wedding SaaS business. Before planning, reviewing,
+    designing, or implementing behavior that affects customers, read that file
+    and include its guidance in the working context. Treat it as authoritative;
+    surface conflicts and ask business or technical leadership about unresolved
+    questions rather than inventing policies.
+
   Tech stack: Python 3.9+, one executable script, PyTorch, Hugging Face
     Transformers, Pillow, and optionally the OpenAI Python SDK. There is no web
     service, database, packaging layer, or video decoding pipeline.
