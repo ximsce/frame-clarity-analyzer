@@ -20,3 +20,11 @@ ENV/
 frame_analysis_results.json
 frame_analysis_progress.json
 clearest_frames/
+
+# Ignore local OpenCode caches and dependencies
+.opencode/*
+
+# Do not ignore plans, skills, or shared commands
+!.opencode/plans/
+!.opencode/skills/
+!.opencode/commands/

@@ -1,0 +1,73 @@
+schema: spec-driven
+
+context: |
+  Project: Frame Clarity Analyzer
+  Purpose: Rank pre-extracted video-frame images by perceived visual clarity and
+    copy the strongest candidates for review or downstream use.
+
+  Tech stack: Python 3.9+, one executable script, PyTorch, Hugging Face
+    Transformers, Pillow, and optionally the OpenAI Python SDK. There is no web
+    service, database, packaging layer, or video decoding pipeline.
+
+  Main entry point: identify_clearest_frames.py. Keep the CLI usable as the
+    primary interface; reusable behavior should remain easy to call from Python
+    without requiring a framework.
+
+  Analyzer modes:
+    - clip: local openai/clip-vit-base-patch32 by default; model files are
+      downloaded by Transformers and inference is sequential.
+    - openai: sends one PNG image at a time to the configured OpenAI vision
+      model; requests are rate limited and retried.
+
+  Input contract: the current implementation scans PNG files only and sorts
+    them by removing FRAME_PREFIX (default rawFrames) from the filename stem and
+    converting the remainder to an integer. Do not assume arbitrary filenames
+    are supported without changing and testing that contract.
+
+  Output contract: results are written as JSON beside the input directory;
+    progress is written to frame_analysis_progress.json and the full ranking to
+    frame_analysis_results.json. The top frames are optionally copied to
+    clearest_frames/ with a numeric rank prefix. These generated artifacts and
+    raw frame data must not be committed.
+
+  Reliability priorities: preserve resumability, avoid losing completed scores,
+    validate external input and model/API responses, keep API keys out of logs
+    and source control, and make failures visible rather than silently treating
+    them as successful analysis.
+
+  Development conventions: prefer small, focused changes; preserve existing
+    CLI behavior unless a change explicitly calls for a breaking change; use
+    standard-library solutions where practical; document user-visible behavior;
+    and add tests before or alongside changes to scoring, file discovery,
+    progress persistence, or API response parsing.
+
+  OpenSpec conventions: use a change proposal for non-trivial behavior changes,
+    keep project-wide facts here, and keep durable capability requirements in
+    openspec/specs. Validate specs and changes before considering work complete.
+
+rules:
+  proposal:
+    - State the user problem, proposed behavior, and explicit non-goals.
+    - Call out compatibility implications for the CLI, input naming, outputs,
+      progress files, and analyzer selection.
+    - Prefer one cohesive change over speculative refactoring.
+  design:
+    - Describe failure handling and resumability for any new I/O or external API
+      behavior.
+    - Identify how the behavior can be tested without model downloads or live API
+      calls.
+  tasks:
+    - Include verification commands and note any tests that require optional
+      dependencies, model downloads, hardware, or credentials.
+
+operations:
+  apply:
+    guidance:
+      - Run syntax and CLI smoke checks even when model-backed tests are not
+        available.
+      - Do not commit API keys, generated frame images, progress files, or result
+        files.
+  archive:
+    guidance:
+      - Confirm the implementation, documentation, and durable specs agree about
+        the resulting behavior.
