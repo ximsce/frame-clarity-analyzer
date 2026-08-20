@@ -5,6 +5,11 @@ is a command-line Python utility, not a video editor or a hosted service. Give i
 a directory of numbered PNG images and it produces a ranked report plus an
 optional folder of the best frames.
 
+The product direction is end-to-end video-to-high-quality-frame extraction, with
+all outputs entering a human review queue. See [PRODUCT_VISION.md](PRODUCT_VISION.md)
+for the product briefing, business role, privacy boundaries, and planned
+expansion from the current frame-ranking core.
+
 The project supports two analyzer backends:
 
 - `clip`: a local Hugging Face CLIP model. This is the default and does not incur
