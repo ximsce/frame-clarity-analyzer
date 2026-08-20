@@ -6,6 +6,10 @@ Keep this project small, explicit, and usable from the command line. Prefer a
 focused change over a broad refactor, and preserve existing behavior unless the
 change intentionally updates the CLI or its documented contracts.
 
+Read [ARCHITECTURE.md](ARCHITECTURE.md) alongside `BUSINESS_CONTEXT.md` and
+`PRODUCT_VISION.md` before changing workflow boundaries, persistence, analyzer
+integration, or local engineer utilities.
+
 Important compatibility surfaces include:
 
 - frame filename parsing and numeric ordering;

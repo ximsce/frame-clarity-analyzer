@@ -13,11 +13,18 @@ context: |
     questions rather than inventing policies.
 
   Product direction: PRODUCT_VISION.md is the repository's product briefing for
-    the end-to-end video-to-high-quality-frame vision. Read it after
-    BUSINESS_CONTEXT.md when planning or changing product behavior. It
-    distinguishes the current pre-extracted-frame ranking core from the target
-    video pipeline, review-queue boundary, privacy requirements, and deferred
-    architecture decisions.
+  the end-to-end video-to-high-quality-frame vision. Read it after
+  BUSINESS_CONTEXT.md when planning or changing product behavior. It
+  distinguishes the current pre-extracted-frame ranking core from the target
+  video pipeline, review-queue boundary, privacy requirements, and deferred
+  architecture decisions.
+
+  Architecture: ARCHITECTURE.md defines the current local prototyping
+  architecture, CLI-first boundaries, local engineer utility constraints,
+  security and reliability expectations, and offline test strategy. Read it when
+  planning or changing technical boundaries, persistence, analyzer integration,
+  local web utilities, or test strategy. Cloud architecture remains deferred;
+  this document must not be used to resolve business or product open questions.
 
   Tech stack: Python 3.9+, one executable script, PyTorch, Hugging Face
     Transformers, Pillow, and optionally the OpenAI Python SDK. There is no web
