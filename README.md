@@ -3,7 +3,8 @@
 Frame Clarity Analyzer ranks pre-extracted video frames by perceived clarity. It
 is a command-line Python utility, not a video editor or a hosted service. Give it
 a directory of numbered PNG images and it produces a ranked report plus an
-optional folder of the best frames.
+optional folder of the best frames. See [ARCHITECTURE.md](ARCHITECTURE.md) for
+the current-phase architecture, testing boundaries, and security considerations.
 
 The product direction is end-to-end video-to-high-quality-frame extraction, with
 all outputs entering a human review queue. See [PRODUCT_VISION.md](PRODUCT_VISION.md)
