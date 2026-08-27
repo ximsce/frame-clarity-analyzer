@@ -88,6 +88,22 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             FrameOutcome("rawFrames3.png", 3, "failed", score=50, error="broken")
 
+    def test_failure_diagnostics_redact_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            write_frame(path, "rawFrames1.png")
+            manifest = discover_frames(path)
+            result = run_analysis(
+                manifest,
+                FakeAnalyzer({"rawFrames1.png": RuntimeError("token-123 leaked")}),
+                analyzer_name="fake",
+                model="test",
+                secrets=["token-123"],
+            )
+            self.assertEqual(result.outcomes[0].status, "failed")
+            self.assertNotIn("token-123", result.outcomes[0].error)
+            self.assertIn("[redacted]", result.outcomes[0].error)
+
     def test_run_retries_failures_and_checkpoints(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)

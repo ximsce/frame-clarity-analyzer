@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Mapping, Optional
 
 from .errors import ConfigurationError, DiscoveryError
-from .models import FrameManifest, FrameManifestItem
+from .models import FrameManifest, FrameManifestItem, FrameProvenance
 
 
 DEFAULT_FRAME_PREFIX = "rawFrames"
@@ -33,7 +34,12 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def discover_frames(frames_dir: Path, prefix: Optional[str] = None) -> FrameManifest:
+def discover_frames(
+    frames_dir: Path,
+    prefix: Optional[str] = None,
+    provenance_by_filename: Optional[Mapping[str, FrameProvenance]] = None,
+    identity_context: Optional[str] = None,
+) -> FrameManifest:
     """Return a validated numeric manifest for a PNG frame directory."""
 
     directory = Path(frames_dir)
@@ -57,6 +63,14 @@ def discover_frames(frames_dir: Path, prefix: Optional[str] = None) -> FrameMani
             "Invalid frame filename(s) in %s (expected %s<number>.png): %s"
             % (directory, frame_prefix, ", ".join(invalid))
         )
+
+    if provenance_by_filename:
+        unknown_provenance = set(provenance_by_filename).difference(entry.name for entry in png_files)
+        if unknown_provenance:
+            raise DiscoveryError(
+                "Provenance contains unknown frame(s): %s"
+                % ", ".join(sorted(unknown_provenance))
+            )
 
     items: List[FrameManifestItem] = []
     seen_indices = {}
@@ -82,17 +96,26 @@ def discover_frames(frames_dir: Path, prefix: Optional[str] = None) -> FrameMani
                 size=stat.st_size,
                 mtime_ns=stat.st_mtime_ns,
                 sha256=_file_sha256(entry),
+                provenance=(provenance_by_filename or {}).get(entry.name),
             )
         )
 
     items.sort(key=lambda item: item.frame_index)
     identity = hashlib.sha256()
+    if identity_context:
+        identity.update(("context\0%s\n" % identity_context).encode("utf-8"))
     for item in items:
         identity.update(
             ("%s\0%s\0%s\0%s\n" % (item.filename, item.frame_index, item.size, item.sha256)).encode(
                 "utf-8"
             )
         )
+        if item.provenance is not None:
+            identity.update(
+                ("provenance\0%s\n" % json.dumps(
+                    item.provenance.to_dict(), sort_keys=True, separators=(",", ":")
+                )).encode("utf-8")
+            )
     return FrameManifest(
         directory=directory.resolve(),
         prefix=frame_prefix,

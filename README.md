@@ -1,10 +1,11 @@
 # Frame Clarity Analyzer
 
-Frame Clarity Analyzer ranks pre-extracted video frames by perceived clarity. It
-is a command-line Python utility, not a video editor or a hosted service. Give it
-a directory of numbered PNG images and it produces a ranked report plus an
-optional folder of the best frames. See [ARCHITECTURE.md](ARCHITECTURE.md) for
-the current-phase architecture, testing boundaries, and security considerations.
+Frame Clarity Analyzer ranks video frames by perceived clarity. It is a
+command-line Python utility, not a video editor or a hosted service. Give it a
+local video file or a directory of numbered PNG images and it produces a ranked
+report plus an optional folder of the best frames. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the current-phase architecture, testing
+boundaries, and security considerations.
 
 The product direction is end-to-end video-to-high-quality-frame extraction, with
 all outputs entering a human review queue. See [PRODUCT_VISION.md](PRODUCT_VISION.md)
@@ -18,11 +19,13 @@ The project supports two analyzer backends:
 - `openai`: an OpenAI vision model. This requires an API key, account credits,
   and network access.
 
+Video extraction uses the locally installed `ffprobe` and `ffmpeg` command-line
+tools. Video processing does not upload the source video by itself.
+
 ## Current Scope
 
 The current implementation focuses on ranking individual images. It does not:
 
-- extract frames from a video;
 - deduplicate near-identical frames;
 - guarantee objective photographic sharpness;
 - provide a library package or HTTP API; or
@@ -32,6 +35,7 @@ The current implementation focuses on ranking individual images. It does not:
 
 - Python 3.9 or newer
 - Dependencies listed in `requirements.txt`
+- `ffmpeg` and `ffprobe` on `PATH` for video input
 - A local model download and enough memory for CLIP mode
 - An `OPENAI_API_KEY` and OpenAI billing for OpenAI mode
 
@@ -74,6 +78,24 @@ Note that the code's CLI directory default is `dancingFrames`, while the naming
 prefix default is `rawFrames`. For predictable behavior, pass `--frames-dir`
 explicitly and make the prefix match the actual filenames.
 
+## Video Input Contract
+
+Use `--video` to process one local video file. The CLI validates the file with
+`ffprobe`, selects a usable video stream, and rejects videos longer than 180
+seconds before extraction or model initialization. The default sampling density
+is 30 frames per second and can be changed with `--sample-fps`.
+
+Frames are extracted as numbered PNG files in an isolated workspace named from
+the video, with a `video_extraction_manifest.json` file containing source
+identity, stream context, sampling settings, and per-frame timestamps. A
+completed matching workspace may be reused. An interrupted or failed extraction
+is discarded and restarted from the beginning rather than being analyzed as a
+partial set.
+
+The first video workflow is local and CLI-driven. It does not connect to a phone,
+provide hosted upload or identity behavior, publish to a gallery, deduplicate
+frames, or provide a review UI.
+
 ## Quick Start
 
 Run local CLIP analysis from the project root:
@@ -94,6 +116,17 @@ OPENAI_API_KEY=sk-... python identify_clearest_frames.py \
   --model gpt-4o
 ```
 
+Run local CLIP analysis directly from a short video:
+
+```bash
+python identify_clearest_frames.py \
+  --video wedding-clip.mov \
+  --analyzer clip
+```
+
+At the default 30 FPS, a three-minute video can produce up to 5,400 extracted
+frames. This can require substantial disk space and analysis time.
+
 Do not place API keys directly in source files or commit them. An environment
 variable is preferred to `--api-key` because command-line arguments may be
 visible in local process listings or shell history.
@@ -103,6 +136,9 @@ visible in local process listings or shell history.
 | Option | Default | Description |
 | --- | --- | --- |
 | `--frames-dir` | `dancingFrames` | Directory containing numbered PNG frames |
+| `--video` | off | Local video file to extract frames from |
+| `--extraction-dir` | Video-derived | Directory for video extraction artifacts |
+| `--sample-fps` | `30` | Video sampling density in frames per second |
 | `--output-dir` | Parent/`clearest_frames` | Destination for copied top frames |
 | `--progress-file` | Parent/`frame_analysis_progress.json` | Progress JSON path |
 | `--results-file` | Parent/`frame_analysis_results.json` | Results JSON path |
@@ -142,6 +178,11 @@ For an input directory such as `project/rawFrames`, the default artifacts are:
 - `project/frame_analysis_results.json`: the complete ranked outcome list;
 - `project/clearest_frames/001_rawFrames0001.png`: ranked copies of top frames.
 
+For a video such as `project/wedding-clip.mov`, the default extraction workspace
+is `project/wedding-clip_frames/` and contains the numbered extracted PNGs plus
+`video_extraction_manifest.json`. Results and analysis progress are written
+beside that workspace unless custom paths are supplied.
+
 The full results list contains one record per discovered frame. Each record has a
 `status` of `success`, `failed`, or `skipped`; successful records have a score,
 while failed and skipped records have a null score and an error/reason field.
@@ -155,10 +196,14 @@ Changed input files or analyzer/model settings produce a metadata-mismatch error
 use `--no-resume` to intentionally start a new context. Structurally valid legacy
 progress files are migrated, while corrupt or ambiguous files are rejected.
 
+Video result records additionally include a stable source-video identity, source
+stream identity, source timestamp, requested sampling timestamp, and extraction
+configuration. Credentials and unnecessary absolute local paths are not stored.
+
 For automation, exit status `0` means every discovered frame succeeded or was
-explicitly skipped and required artifacts were written. Invalid input, analyzer
-initialization failures, progress/output failures, unresolved frame failures, and
-interruptions return nonzero statuses.
+explicitly skipped and required artifacts were written. Invalid input, video
+extraction failures, analyzer initialization failures, progress/output failures,
+unresolved frame failures, and interruptions return nonzero statuses.
 
 ## Development
 
@@ -170,6 +215,10 @@ python3 -m unittest discover -s tests -v
 python3 -m py_compile identify_clearest_frames.py
 python3 identify_clearest_frames.py --help
 ```
+
+Optional real-FFmpeg integration tests are disabled by default. Run them with
+`RUN_FFMPEG_INTEGRATION=1` when `ffmpeg` and `ffprobe` are installed. They do
+not require model downloads, GPU hardware, API credentials, or network access.
 
 Changes to file discovery, scoring, progress persistence, response parsing, or
 copying behavior should add tests before relying on live model/API runs. Optional
