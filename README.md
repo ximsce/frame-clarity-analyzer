@@ -39,6 +39,14 @@ The current implementation focuses on ranking individual images. It does not:
 - A local model download and enough memory for CLIP mode
 - An `OPENAI_API_KEY` and OpenAI billing for OpenAI mode
 
+On macOS, install the local media tools with Homebrew:
+
+```bash
+brew install ffmpeg
+ffmpeg -version
+ffprobe -version
+```
+
 Install the pinned project dependencies in a virtual environment:
 
 ```bash
@@ -46,6 +54,15 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
+
+The current `torch==2.1.1` dependency requires NumPy 1.x compatibility. Install
+the compatible range and verify the environment with the same interpreter used
+to run the CLI:
+
+```bash
+python -m pip install --upgrade "numpy<2"
+python -m pip check
 ```
 
 `openai` is installed by the current requirements file even when using CLIP.
