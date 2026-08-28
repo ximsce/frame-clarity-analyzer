@@ -47,6 +47,7 @@ def _analyze_item(
             score=result.score,
             reasoning=result.reasoning,
             attempts=attempts,
+            provenance=item.provenance,
         )
     except Exception as exc:
         return FrameOutcome.failed(
@@ -54,6 +55,7 @@ def _analyze_item(
             frame_index=item.frame_index,
             error=_sanitize_error(exc, secrets),
             attempts=attempts,
+            provenance=item.provenance,
         )
 
 

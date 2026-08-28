@@ -24,6 +24,19 @@ policies. `PRODUCT_VISION.md` defines this repository's product direction. This
 document describes technical boundaries and must not silently resolve business
 open questions.
 
+Architecture decisions are recorded in [`docs/adr/`](docs/adr/). Before planning,
+reviewing, designing, or implementing a non-trivial feature or technical
+boundary change, contributors and agents MUST inspect that directory and read
+the ADRs relevant to the change. ADRs document accepted constraints, tradeoffs,
+and revisit triggers; they are part of the technical context and must not be
+silently contradicted. A deliberate change to an accepted decision should update
+or supersede the relevant ADR in the same work.
+
+The initial video extraction decision is recorded in
+[`ADR-0001`](docs/adr/0001-use-ffmpeg-for-initial-video-extraction.md): use local
+FFmpeg and ffprobe for the first video-input capability. This does not authorize
+streaming, a Python runtime migration, or hosted operation.
+
 ## Product Boundary
 
 The product turns a private set of pre-extracted video-frame images into a
@@ -365,6 +378,20 @@ credits, network access, or GPU hardware. Optional CLIP/OpenAI smoke tests are
 separate and must state their prerequisites.
 
 ## Change And Evolution Rules
+
+### Architecture Decision Records
+
+Before planning a feature or change that affects a technical boundary:
+
+1. Inspect `docs/adr/` for relevant decisions.
+2. Read applicable ADRs and identify constraints, consequences, and revisit
+   triggers that affect the proposed work.
+3. Preserve accepted decisions unless the change explicitly revises them.
+4. Create or update an ADR when the work introduces a durable architectural
+   decision, changes an accepted decision, or establishes a new cross-cutting
+   constraint.
+5. Reference the relevant ADR from proposals, designs, or implementation
+   documentation when the decision materially affects the work.
 
 Changes should preserve these stable boundaries:
 

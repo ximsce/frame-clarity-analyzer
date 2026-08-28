@@ -13,6 +13,14 @@ class DiscoveryError(FrameClarityError):
     """The input frame set cannot be discovered safely."""
 
 
+class VideoInputError(FrameClarityError):
+    """The requested video input cannot be validated or processed safely."""
+
+
+class ExtractionError(VideoInputError):
+    """Video frame extraction or extraction artifact publication failed."""
+
+
 class AnalyzerError(FrameClarityError):
     """An analyzer could not be initialized or returned a usable result."""
 

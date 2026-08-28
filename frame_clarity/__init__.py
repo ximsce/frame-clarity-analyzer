@@ -5,6 +5,7 @@ from .models import (
     FrameManifest,
     FrameManifestItem,
     FrameOutcome,
+    FrameProvenance,
     RunResult,
     SCORING_VERSION,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "FrameManifest",
     "FrameManifestItem",
     "FrameOutcome",
+    "FrameProvenance",
     "RunResult",
     "SCORING_VERSION",
 ]

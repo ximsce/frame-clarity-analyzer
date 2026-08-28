@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ from .errors import AnalysisFailureError, ConfigurationError, FrameClarityError
 from .models import FrameOutcome, RunResult
 from .progress import ProgressStore
 from .results import copy_top_frames, result_document, write_results
+from .video import DEFAULT_SAMPLE_FPS, VideoMediaRunner, extract_video
 
 
 VERSION = "0.1.0"
@@ -41,6 +43,16 @@ def _nonnegative_float(value: str) -> float:
     return parsed
 
 
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
 def _validate_destination(path: Path, label: str) -> None:
     if path.exists() and path.is_dir():
         raise ConfigurationError("%s path is a directory: %s" % (label, path))
@@ -52,10 +64,27 @@ def _validate_destination(path: Path, label: str) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Identify clearest frames from video frames using AI")
     parser.add_argument("--version", action="version", version=VERSION)
-    parser.add_argument(
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
         "--frames-dir",
-        default="dancingFrames",
+        default=None,
         help="Directory containing frame images (default: dancingFrames)",
+    )
+    input_group.add_argument(
+        "--video",
+        default=None,
+        help="Local video file to extract frames from",
+    )
+    parser.add_argument(
+        "--extraction-dir",
+        default=None,
+        help="Directory for video extraction artifacts (video mode only)",
+    )
+    parser.add_argument(
+        "--sample-fps",
+        type=_positive_float,
+        default=DEFAULT_SAMPLE_FPS,
+        help="Video sampling density in frames per second (default: 30)",
     )
     parser.add_argument(
         "--output-dir",
@@ -143,8 +172,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def process_frames(
-    frames_dir: str,
+def _process_manifest(
+    manifest,
     output_dir: Optional[str] = None,
     batch_size: int = 5,
     top_n: int = 50,
@@ -164,9 +193,8 @@ def process_frames(
     analyzer_model: Optional[str] = None,
     output_format: str = "text",
 ) -> List[FrameOutcome]:
-    """Preserve the original callable entry point while using the core layers."""
+    """Run the existing analysis workflow over a complete frame manifest."""
 
-    manifest = discover_frames(Path(frames_dir))
     parent = manifest.directory.parent
     progress_path = Path(progress_file) if progress_file else parent / "frame_analysis_progress.json"
     results_path = Path(results_file) if results_file else parent / "frame_analysis_results.json"
@@ -226,12 +254,120 @@ def process_frames(
     return run.outcomes
 
 
+def process_frames(
+    frames_dir: str,
+    output_dir: Optional[str] = None,
+    batch_size: int = 5,
+    top_n: int = 50,
+    api_key: Optional[str] = None,
+    model: str = "gpt-4o",
+    max_workers: int = 1,
+    save_results: bool = True,
+    free_tier: bool = True,
+    requests_per_minute: int = 3,
+    delay_between_requests: float = 20.0,
+    resume: bool = True,
+    analyzer_type: str = "clip",
+    clip_model: str = "openai/clip-vit-base-patch32",
+    progress_file: Optional[str] = None,
+    results_file: Optional[str] = None,
+    analyzer: Optional[AnalyzerProtocol] = None,
+    analyzer_model: Optional[str] = None,
+    output_format: str = "text",
+) -> List[FrameOutcome]:
+    """Preserve the original callable entry point while using the core layers."""
+
+    manifest = discover_frames(Path(frames_dir))
+    return _process_manifest(
+        manifest,
+        output_dir=output_dir,
+        batch_size=batch_size,
+        top_n=top_n,
+        api_key=api_key,
+        model=model,
+        max_workers=max_workers,
+        save_results=save_results,
+        free_tier=free_tier,
+        requests_per_minute=requests_per_minute,
+        delay_between_requests=delay_between_requests,
+        resume=resume,
+        analyzer_type=analyzer_type,
+        clip_model=clip_model,
+        progress_file=progress_file,
+        results_file=results_file,
+        analyzer=analyzer,
+        analyzer_model=analyzer_model,
+        output_format=output_format,
+    )
+
+
+def process_video(
+    video_path: str,
+    output_dir: Optional[str] = None,
+    batch_size: int = 5,
+    top_n: int = 50,
+    api_key: Optional[str] = None,
+    model: str = "gpt-4o",
+    max_workers: int = 1,
+    save_results: bool = True,
+    free_tier: bool = True,
+    requests_per_minute: int = 3,
+    delay_between_requests: float = 20.0,
+    resume: bool = True,
+    analyzer_type: str = "clip",
+    clip_model: str = "openai/clip-vit-base-patch32",
+    progress_file: Optional[str] = None,
+    results_file: Optional[str] = None,
+    analyzer: Optional[AnalyzerProtocol] = None,
+    analyzer_model: Optional[str] = None,
+    output_format: str = "text",
+    extraction_dir: Optional[str] = None,
+    sample_fps: float = DEFAULT_SAMPLE_FPS,
+    runner: Optional[VideoMediaRunner] = None,
+) -> List[FrameOutcome]:
+    """Extract a local video, then run the existing frame analysis workflow."""
+
+    extraction = extract_video(
+        Path(video_path),
+        extraction_dir=Path(extraction_dir) if extraction_dir else None,
+        sample_fps=sample_fps,
+        resume=resume,
+        runner=runner,
+    )
+    manifest = discover_frames(
+        extraction.frames_dir,
+        prefix=extraction.prefix,
+        provenance_by_filename=extraction.provenance_by_filename,
+        identity_context=extraction.extraction_id,
+    )
+    return _process_manifest(
+        manifest,
+        output_dir=output_dir,
+        batch_size=batch_size,
+        top_n=top_n,
+        api_key=api_key,
+        model=model,
+        max_workers=max_workers,
+        save_results=save_results,
+        free_tier=free_tier,
+        requests_per_minute=requests_per_minute,
+        delay_between_requests=delay_between_requests,
+        resume=resume,
+        analyzer_type=analyzer_type,
+        clip_model=clip_model,
+        progress_file=progress_file,
+        results_file=results_file,
+        analyzer=analyzer,
+        analyzer_model=analyzer_model,
+        output_format=output_format,
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        process_frames(
-            frames_dir=args.frames_dir,
+        common = dict(
             output_dir=args.output_dir,
             batch_size=args.batch_size,
             top_n=args.top_n,
@@ -249,6 +385,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             results_file=args.results_file,
             output_format=args.format,
         )
+        if args.video:
+            process_video(
+                video_path=args.video,
+                extraction_dir=args.extraction_dir,
+                sample_fps=args.sample_fps,
+                **common
+            )
+        else:
+            if args.extraction_dir:
+                raise ConfigurationError("--extraction-dir requires --video")
+            if args.sample_fps != DEFAULT_SAMPLE_FPS:
+                raise ConfigurationError("--sample-fps requires --video")
+            process_frames(frames_dir=args.frames_dir or "dancingFrames", **common)
         return 0
     except KeyboardInterrupt:
         print("Interrupted by user", file=sys.stderr)
