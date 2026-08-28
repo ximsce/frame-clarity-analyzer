@@ -153,7 +153,11 @@ outcomes, status, score where applicable, reasoning where available, error
 details for failures, and the configured top-N value. When copying is enabled,
 successful top frames SHALL be copied to the configured output directory,
 defaulting to the parent directory's `clearest_frames`, using the existing
-numeric rank prefix.
+numeric rank prefix. For video-origin frames, each result SHALL additionally
+retain the source-video identity, source stream identity, source timestamp, and
+extraction configuration required by the video-input capability. Existing
+numbered-PNG directory results SHALL remain valid without video provenance
+fields.
 
 #### Scenario: Default artifacts remain discoverable
 
@@ -164,6 +168,16 @@ numeric rank prefix.
 
 - **WHEN** the user invokes the documented `--no-save` option
 - **THEN** the JSON results are still generated and frame copies are not written
+
+#### Scenario: Video results retain provenance
+
+- **WHEN** a video-origin frame is included in the results JSON
+- **THEN** its record contains source-video identity, source stream identity, source timestamp, and extraction configuration in addition to the existing outcome fields
+
+#### Scenario: Existing frame-directory results remain compatible
+
+- **WHEN** the user analyzes an existing numbered-PNG frame directory
+- **THEN** the command preserves the existing result fields, ranking behavior, copied filenames, and artifact locations without requiring video provenance
 
 ### Requirement: CLI compatibility and exit status are explicit
 
