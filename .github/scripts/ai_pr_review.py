@@ -205,10 +205,18 @@ def _http_request(
             parsed_detail = json.loads(raw_detail)
             error = parsed_detail.get("error") if isinstance(parsed_detail, dict) else None
             message = error.get("message") if isinstance(error, dict) else None
+            if not isinstance(message, str) and isinstance(parsed_detail, dict):
+                message = parsed_detail.get("message")
             if isinstance(message, str):
                 detail = redact_sensitive(message)[:300]
         except (OSError, UnicodeError, json.JSONDecodeError):
             pass
+        accepted_permissions = exc.headers.get("X-Accepted-GitHub-Permissions", "")
+        if accepted_permissions and "github.com" in url:
+            detail = "%s%s" % (
+                detail + "; " if detail else "",
+                "required permissions: " + redact_sensitive(accepted_permissions)[:200],
+            )
         suffix = ": %s" % detail if detail else ""
         raise ReviewError("HTTP request failed with status %s%s" % (exc.code, suffix)) from exc
     except (OSError, URLError, ValueError) as exc:

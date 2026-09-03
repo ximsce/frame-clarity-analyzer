@@ -270,6 +270,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("OPENCODE_GO_API_KEY", workflow)
         self.assertIn("contents: read", workflow)
         self.assertIn("issues: write", workflow)
+        self.assertIn("pull-requests: write", workflow)
         self.assertNotIn("actions/checkout@v", workflow)
 
 
