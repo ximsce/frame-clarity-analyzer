@@ -626,18 +626,28 @@ def main() -> int:
             print("Skipping fork-originated pull request")
             return 0
         config = load_config(values)
-        selection = select_diff(
-            fetch_pull_request_diff(config), config.max_diff_bytes, config.max_diff_lines
-        )
+        try:
+            selection = select_diff(
+                fetch_pull_request_diff(config), config.max_diff_bytes, config.max_diff_lines
+            )
+        except ReviewError as exc:
+            raise ReviewError("GitHub diff retrieval failed: %s" % exc) from exc
         guidance = read_guidance(Path.cwd())
-        review = call_opencode(
-            config,
-            build_prompt(selection, guidance),
-            "github-actions-pr-%s-%s" % (config.pull_request, event.get("pull_request", {}).get("head", {}).get("sha", "unknown")),
-        )
+        try:
+            review = call_opencode(
+                config,
+                build_prompt(selection, guidance),
+                "github-actions-pr-%s-%s"
+                % (config.pull_request, event.get("pull_request", {}).get("head", {}).get("sha", "unknown")),
+            )
+        except ReviewError as exc:
+            raise ReviewError("OpenCode Go request failed: %s" % exc) from exc
         pull_request = event.get("pull_request", {})
         commit = pull_request.get("head", {}).get("sha", "unknown") if isinstance(pull_request, dict) else "unknown"
-        publish_comment(config, render_comment(review, config, selection, str(commit)))
+        try:
+            publish_comment(config, render_comment(review, config, selection, str(commit)))
+        except ReviewError as exc:
+            raise ReviewError("GitHub comment publication failed: %s" % exc) from exc
         print("OpenCode Go advisory review posted for pull request %s" % config.pull_request)
         return 0
     except ReviewError as exc:
