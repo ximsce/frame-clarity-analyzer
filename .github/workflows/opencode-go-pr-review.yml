@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: opencode-go-pr-review-${{ github.repository }}-${{ github.event.pull_request.number }}
