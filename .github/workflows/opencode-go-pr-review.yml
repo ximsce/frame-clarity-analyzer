@@ -1,0 +1,39 @@
+name: OpenCode Go PR Review
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: opencode-go-pr-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+      OPENCODE_GO_MODEL: ${{ vars.OPENCODE_GO_MODEL }}
+      OPENCODE_GO_ENDPOINT: ${{ vars.OPENCODE_GO_ENDPOINT }}
+      OPENCODE_GO_PROTOCOL: ${{ vars.OPENCODE_GO_PROTOCOL }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Review pull request with OpenCode Go
+        run: python3 .github/scripts/ai_pr_review.py
