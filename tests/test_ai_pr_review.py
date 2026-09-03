@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import sys
 import tempfile
@@ -162,6 +163,7 @@ class ProviderTests(unittest.TestCase):
         headers = dict(request.header_items())
         self.assertEqual(review.summary, "Looks good")
         self.assertEqual(body["model"], ai_pr_review.DEFAULT_MODEL)
+        self.assertNotIn("response_format", body)
         self.assertNotIn("opencode-secret", request.data.decode("utf-8"))
         self.assertEqual(headers["X-opencode-session"], "session-7")
         self.assertGreater(timeout, 0)
@@ -189,6 +191,21 @@ class ProviderTests(unittest.TestCase):
         opener = FakeOpener([ai_pr_review.URLError("provider detail")])
         with self.assertRaisesRegex(ai_pr_review.ReviewError, "HTTP request failed"):
             ai_pr_review.call_opencode(config, "prompt", "session", opener)
+
+    def test_http_error_exposes_only_sanitized_provider_message(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        error = ai_pr_review.HTTPError(
+            config.endpoint,
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b'{"error":{"message":"unsupported api_key=secret-value"}}'),
+        )
+        opener = FakeOpener([error])
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "unsupported") as context:
+            ai_pr_review.call_opencode(config, "prompt", "session", opener)
+        self.assertNotIn("secret-value", str(context.exception))
 
 
 class CommentTests(unittest.TestCase):

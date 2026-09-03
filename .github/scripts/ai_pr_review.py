@@ -199,7 +199,18 @@ def _http_request(
         with open_fn(request, timeout=timeout) as response:
             return response.read()
     except HTTPError as exc:
-        raise ReviewError("HTTP request failed with status %s" % exc.code) from exc
+        detail = ""
+        try:
+            raw_detail = exc.read(2_048).decode("utf-8", errors="replace")
+            parsed_detail = json.loads(raw_detail)
+            error = parsed_detail.get("error") if isinstance(parsed_detail, dict) else None
+            message = error.get("message") if isinstance(error, dict) else None
+            if isinstance(message, str):
+                detail = redact_sensitive(message)[:300]
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
+        suffix = ": %s" % detail if detail else ""
+        raise ReviewError("HTTP request failed with status %s%s" % (exc.code, suffix)) from exc
     except (OSError, URLError, ValueError) as exc:
         raise ReviewError("HTTP request failed") from exc
 
@@ -476,9 +487,7 @@ def call_opencode(
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            "temperature": 0.1,
             "max_tokens": 2_000,
-            "response_format": {"type": "json_object"},
         }
     else:
         body = {
@@ -487,9 +496,7 @@ def call_opencode(
                 {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT}]},
                 {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
             ],
-            "temperature": 0.1,
             "max_output_tokens": 2_000,
-            "text": {"format": {"type": "json_object"}},
         }
     headers = {
         "Accept": "application/json",
