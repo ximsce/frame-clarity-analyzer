@@ -24,11 +24,11 @@
 - [x] 3.3 Add offline tests for deterministic comment rendering, advisory labeling, truncation notices, and stable-marker comment create/update behavior.
 - [x] 3.4 Add workflow validation with a YAML/action linter where available and verify that the workflow cannot checkout or run pull-request-controlled files.
 - [x] 3.5 Run `python3 -m unittest discover -s tests -v`, `python3 -m py_compile identify_clearest_frames.py`, and the automation adapter checks without model downloads, API credentials, or network access.
-- [ ] 3.6 Run `openspec validate` and `openspec validate --strict`, then perform a controlled same-repository pull request smoke test with the OpenCode Go secret configured.
+- [x] 3.6 Run `openspec validate` and `openspec validate --strict`, then perform a controlled same-repository pull request smoke test with the OpenCode Go secret configured.
 
 ## 4. Documentation And Rollout
 
 - [x] 4.1 Update `README.md` or contributor documentation with workflow behavior, model switching, OpenCode Go usage limits, GitHub Actions billing, and the advisory-only boundary.
 - [x] 4.2 Document provider privacy review requirements and explicitly exclude OpenCode Go models whose current terms permit training use from the recommended configuration.
 - [x] 4.3 Test a valid review, an empty-findings review, an unavailable-secret failure, a provider timeout, an oversized diff, and a skipped fork pull request without exposing credentials.
-- [ ] 4.4 Enable the workflow in non-blocking mode, inspect permissions/logs/comments/provider usage, and record rollback steps including disabling the workflow and revoking the secret.
+- [x] 4.4 Enable the workflow in non-blocking mode, inspect permissions/logs/comments/provider usage, and record rollback steps including disabling the workflow and revoking the secret.
