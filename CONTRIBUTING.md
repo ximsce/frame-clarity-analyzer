@@ -22,6 +22,72 @@ Important compatibility surfaces include:
 When changing one of these surfaces, update the README and the relevant OpenSpec
 specification or change artifacts in the same work.
 
+## Development Tool Installation
+
+The following instructions are for macOS. Install the tools once per machine,
+then verify them from the repository root.
+
+### Visual Studio Code
+
+1. Install [Visual Studio Code for macOS](https://code.visualstudio.com/docs/setup/mac).
+2. Open VS Code, press `Cmd+Shift+P`, and run **Shell Command: Install 'code'
+   command in PATH**.
+3. Verify the command from a terminal:
+
+   ```bash
+   code --version
+   ```
+
+### OpenCode
+
+OpenCode runs in a terminal and can also integrate with VS Code. Install it with
+Homebrew:
+
+```bash
+brew install anomalyco/tap/opencode
+opencode --version
+```
+
+Run `opencode` from this repository to start a session. OpenCode also needs an
+API key for the model provider you choose; use `/connect` in the OpenCode
+interface or follow the [OpenCode setup documentation](https://opencode.ai/docs/).
+
+### OpenSpec
+
+OpenSpec requires Node.js 20.19.0 or newer. If Node.js is not installed, install
+it with Homebrew and verify the version:
+
+```bash
+brew install node
+node --version
+```
+
+Install the OpenSpec CLI globally and verify it is on your `PATH`:
+
+```bash
+npm install -g @fission-ai/openspec@latest
+openspec --version
+```
+
+This repository is already initialized for OpenSpec. Do not run `openspec init`
+in this checkout unless you intentionally need to recreate its project setup.
+Verify the local installation with:
+
+```bash
+openspec doctor
+openspec validate
+```
+
+### Other Platforms
+
+Use the vendor documentation for platform-specific installation details:
+
+- [Homebrew installation](https://brew.sh/) for macOS and Linux package management;
+- [Visual Studio Code downloads and setup](https://code.visualstudio.com/download);
+- [OpenCode installation and Windows/WSL guidance](https://opencode.ai/docs/);
+- [OpenSpec installation](https://openspec.dev/docs/installation); and
+- [Node.js downloads](https://nodejs.org/en/download/) for Windows, Linux, and macOS.
+
 ## OpenSpec Development
 
 Use OpenSpec for work that changes behavior, adds a capability, or has meaningful
