@@ -40,6 +40,7 @@ class FakeMediaRunner:
     def __init__(self, duration=1.0, failure=None):
         self.duration = duration
         self.failure = failure
+        self.frame_count_adjustment = 0
         self.extract_calls = 0
 
     def probe(self, path: Path) -> VideoProbe:
@@ -56,7 +57,8 @@ class FakeMediaRunner:
         self.extract_calls += 1
         if self.failure is not None:
             raise self.failure
-        for index in range(1, expected_frames + 1):
+        frame_count = expected_frames + self.frame_count_adjustment
+        for index in range(1, frame_count + 1):
             Image.new("RGB", (2, 2), color=(index % 255, 0, 0)).save(
                 Path(output_dir) / ("%s%06d.png" % (prefix, index))
             )
@@ -171,6 +173,41 @@ class VideoTests(unittest.TestCase):
                 0.0,
             )
             self.assertTrue((extraction_dir / "video_extraction_manifest.json").exists())
+
+    def test_accepts_one_frame_end_time_rounding_difference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "clip.mp4"
+            source.write_bytes(b"video")
+            runner = FakeMediaRunner(duration=1.0)
+            runner.frame_count_adjustment = -1
+
+            extraction = extract_video(
+                source,
+                extraction_dir=root / "frames",
+                runner=runner,
+            )
+            reused = extract_video(
+                source,
+                extraction_dir=root / "frames",
+                runner=runner,
+            )
+
+            self.assertEqual(extraction.frame_count, 29)
+            self.assertEqual(reused.frame_count, 29)
+            self.assertEqual(runner.extract_calls, 1)
+            self.assertIn("rawFrames000029.png", extraction.provenance_by_filename)
+
+    def test_rejects_more_than_one_missing_extracted_frame(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "clip.mp4"
+            source.write_bytes(b"video")
+            runner = FakeMediaRunner(duration=1.0)
+            runner.frame_count_adjustment = -2
+
+            with self.assertRaisesRegex(ExtractionError, "unexpected frame set"):
+                extract_video(source, extraction_dir=root / "frames", runner=runner)
 
     def test_changed_sampling_configuration_rebuilds_extraction(self):
         with tempfile.TemporaryDirectory() as directory:
