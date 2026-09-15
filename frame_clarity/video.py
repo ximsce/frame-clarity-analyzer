@@ -27,6 +27,7 @@ EXTRACTION_MANIFEST_NAME = "video_extraction_manifest.json"
 DEFAULT_EXTRACTION_TIMEOUT_SECONDS = 600.0
 MAX_DIAGNOSTIC_LENGTH = 1000
 MAX_COMMAND_OUTPUT_LENGTH = 1024 * 1024
+EXTRACTION_COUNT_TOLERANCE = 1
 
 
 @dataclass(frozen=True)
@@ -418,7 +419,9 @@ def _load_existing(
         if not isinstance(sampling, dict) or sampling.get("prefix") != expected_prefix:
             return None
         raw_frames = payload.get("frames")
-        if not isinstance(raw_frames, list) or len(raw_frames) != expected_count:
+        if not isinstance(raw_frames, list) or not _acceptable_frame_count(
+            len(raw_frames), expected_count
+        ):
             return None
         provenance_by_filename: Dict[str, FrameProvenance] = {}
         for value in raw_frames:
@@ -426,7 +429,7 @@ def _load_existing(
                 return None
             filename = str(value["filename"])
             provenance_by_filename[filename] = FrameProvenance.from_dict(value["provenance"])
-        if len(provenance_by_filename) != expected_count:
+        if len(provenance_by_filename) != len(raw_frames):
             return None
         discover_frames(
             directory,
@@ -445,13 +448,20 @@ def _load_existing(
         extraction_id=expected_id,
         prefix=expected_prefix,
         provenance_by_filename=provenance_by_filename,
-        frame_count=expected_count,
+        frame_count=len(raw_frames),
     )
 
 
-def _validate_pngs(directory: Path, expected_names: Sequence[str]) -> None:
+def _acceptable_frame_count(actual_count: int, expected_count: int) -> bool:
+    """Allow FFmpeg's one-frame end-time rounding at the duration boundary."""
+
+    return max(1, expected_count - EXTRACTION_COUNT_TOLERANCE) <= actual_count <= expected_count
+
+
+def _validate_pngs(directory: Path, expected_names: Sequence[str]) -> List[str]:
     actual_names = sorted(path.name for path in directory.glob("*.png"))
-    if actual_names != list(expected_names):
+    expected = list(expected_names)
+    if not _acceptable_frame_count(len(actual_names), len(expected)) or actual_names != expected[: len(actual_names)]:
         raise ExtractionError(
             "Extraction produced an unexpected frame set: expected %s frame(s), found %s"
             % (len(expected_names), len(actual_names))
@@ -460,13 +470,14 @@ def _validate_pngs(directory: Path, expected_names: Sequence[str]) -> None:
         from PIL import Image
     except Exception as exc:
         raise ExtractionError("Pillow is required to validate extracted PNG frames") from exc
-    for filename in expected_names:
+    for filename in actual_names:
         path = directory / filename
         try:
             with Image.open(str(path)) as image:
                 image.verify()
         except Exception as exc:
             raise ExtractionError("Extracted frame is unreadable: %s" % filename) from exc
+    return actual_names
 
 
 def _retire_existing(directory: Path) -> Optional[Path]:
@@ -548,7 +559,8 @@ def extract_video(
             "%s%06d.png" % (frame_prefix, index)
             for index in range(1, expected_count + 1)
         ]
-        _validate_pngs(temporary, expected_names)
+        actual_names = _validate_pngs(temporary, expected_names)
+        actual_count = len(actual_names)
         provenance_by_filename = _provenance_for_frames(
             probe,
             extraction_id,
@@ -556,7 +568,7 @@ def extract_video(
             sample_fps,
             extractor,
             extractor_version,
-            expected_count,
+            actual_count,
         )
         manifest = discover_frames(
             temporary,
@@ -564,10 +576,10 @@ def extract_video(
             provenance_by_filename=provenance_by_filename,
             identity_context=extraction_id,
         )
-        if len(manifest.items) != expected_count:
+        if len(manifest.items) != actual_count:
             raise ExtractionError(
                 "Extraction produced %s frame(s); expected %s"
-                % (len(manifest.items), expected_count)
+                % (len(manifest.items), actual_count)
             )
         atomic_write_json(
             temporary / EXTRACTION_MANIFEST_NAME,
@@ -592,7 +604,7 @@ def extract_video(
             extraction_id=extraction_id,
             prefix=frame_prefix,
             provenance_by_filename=provenance_by_filename,
-            frame_count=expected_count,
+            frame_count=actual_count,
         )
     except BaseException:
         _cleanup_path(temporary)
