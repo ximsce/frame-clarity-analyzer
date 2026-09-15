@@ -88,6 +88,40 @@ Use the vendor documentation for platform-specific installation details:
 - [OpenSpec installation](https://openspec.dev/docs/installation); and
 - [Node.js downloads](https://nodejs.org/en/download/) for Windows, Linux, and macOS.
 
+## Python Environment and Build
+
+The project requires Python 3.9 or newer. From the repository root, create and
+activate a virtual environment, then install the pinned project dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+The current `torch` dependency requires NumPy 1.x compatibility. Install the
+compatible range and verify the environment with the same interpreter used to
+run the CLI:
+
+```bash
+python -m pip install --upgrade "numpy<2"
+python -m pip check
+```
+
+Video-related development and integration checks also require `ffmpeg` and
+`ffprobe` on `PATH`. On macOS, install both with Homebrew:
+
+```bash
+brew install ffmpeg
+ffmpeg -version
+ffprobe -version
+```
+
+This is a source-based command-line project, so there is no separate package
+build step. Keep the virtual environment active while running the CLI, tests,
+and verification commands.
+
 ## OpenSpec Development
 
 Use OpenSpec for work that changes behavior, adds a capability, or has meaningful
