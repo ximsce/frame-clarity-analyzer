@@ -110,8 +110,9 @@ is discarded and restarted from the beginning rather than being analyzed as a
 partial set.
 
 The first video workflow is local and CLI-driven. It does not connect to a phone,
-provide hosted upload or identity behavior, publish to a gallery, deduplicate
-frames, or provide a review UI.
+provide hosted upload or identity behavior, publish to a gallery, or deduplicate
+frames. A separate local visualizer is available for engineer inspection only;
+it does not provide customer review, approval, or sharing behavior.
 
 ## Quick Start
 
@@ -140,6 +141,33 @@ python identify_clearest_frames.py \
   --video wedding-clip.mov \
   --analyzer clip
 ```
+
+## Local Pipeline Visualizer
+
+The repository also includes a standard-library browser utility for inspecting
+one video pipeline run:
+
+```bash
+python3 visualize_pipeline.py
+```
+
+Open the printed URL in a browser. The server binds to `127.0.0.1` only and
+chooses an available port by default. It is an engineer inspection tool, not a
+hosted service or customer-facing review interface. It has no identity,
+publishing, approval, sharing, or gallery controls.
+
+Visualizer runs accept one upload at a time, default to 5 FPS, and offer bounded
+sampling choices through 30 FPS. Uploads are limited to 512 MiB and videos keep
+the existing 180-second validation limit. Run artifacts are stored in an
+isolated temporary workspace and removed when the run is cleared or the server
+exits. The visualizer always uses the local CLIP analyzer; the first run may
+download `openai/clip-vit-base-patch32` through the configured local model
+environment. FFmpeg and ffprobe must also be available on `PATH`.
+
+The existing `identify_clearest_frames.py` CLI remains the primary interface.
+Its 30 FPS video default, analyzer choices, numbered-PNG mode, progress and
+resume semantics, results contract, copied-frame behavior, and OpenAI support
+are unchanged.
 
 At the default 30 FPS, a three-minute video can produce up to 5,400 extracted
 frames. This can require substantial disk space and analysis time.
