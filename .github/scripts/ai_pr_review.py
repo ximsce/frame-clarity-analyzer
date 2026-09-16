@@ -22,8 +22,9 @@ DEFAULT_MODEL = "kimi-k2.7-code"
 DEFAULT_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
 DEFAULT_PROTOCOL = "chat-completions"
 MARKER = "<!-- opencode-go-ai-review -->"
-DEFAULT_MAX_DIFF_BYTES = 120_000
+DEFAULT_MAX_DIFF_BYTES = 80_000
 DEFAULT_MAX_DIFF_LINES = 4_000
+DEFAULT_MAX_REVIEW_CALLS = 8
 MAX_FINDINGS = 20
 MAX_SUMMARY_LENGTH = 2_000
 MAX_FIELD_LENGTH = 1_200
@@ -71,6 +72,7 @@ class ReviewConfig:
     timeout: int
     max_diff_bytes: int
     max_diff_lines: int
+    max_review_calls: int
 
 
 @dataclass(frozen=True)
@@ -79,12 +81,14 @@ class DiffSelection:
     skipped_paths: Tuple[str, ...]
     truncated: bool
     included_files: int
+    chunk_paths: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class Review:
     summary: str
     findings: Tuple[Dict[str, Any], ...]
+    review_parts: int = 1
 
 
 @dataclass(frozen=True)
@@ -177,6 +181,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
     timeout = _positive_int(values, "OPENCODE_GO_TIMEOUT", 90, 600)
     max_diff_bytes = _positive_int(values, "OPENCODE_GO_MAX_DIFF_BYTES", DEFAULT_MAX_DIFF_BYTES, 1_000_000)
     max_diff_lines = _positive_int(values, "OPENCODE_GO_MAX_DIFF_LINES", DEFAULT_MAX_DIFF_LINES, 20_000)
+    max_review_calls = _positive_int(values, "OPENCODE_GO_MAX_REVIEW_CALLS", DEFAULT_MAX_REVIEW_CALLS, 32)
     return ReviewConfig(
         api_key=_required(values, "OPENCODE_GO_API_KEY"),
         github_token=_required(values, "GITHUB_TOKEN"),
@@ -189,6 +194,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
         timeout=timeout,
         max_diff_bytes=max_diff_bytes,
         max_diff_lines=max_diff_lines,
+        max_review_calls=max_review_calls,
     )
 
 
@@ -394,6 +400,100 @@ def select_diff(diff: str, max_bytes: int, max_lines: int) -> DiffSelection:
     return DiffSelection(limited, tuple(sorted(set(skipped))), truncated, included)
 
 
+def _eligible_diff_blocks(diff: str) -> Tuple[List[Tuple[str, str]], Tuple[str, ...], int]:
+    selected_blocks: List[Tuple[str, str]] = []
+    skipped: List[str] = []
+    for path, block in _diff_blocks(diff):
+        if is_excluded_path(path) or "\nBinary files " in block or block.startswith("Binary files "):
+            skipped.append(path)
+            continue
+        selected_blocks.append((path, block))
+    return selected_blocks, tuple(sorted(set(skipped))), len({path for path, _ in selected_blocks})
+
+
+def _split_diff_block(block: str, max_bytes: int, max_lines: int) -> List[str]:
+    """Split one file block without dropping any diff lines."""
+
+    parts: List[str] = []
+    current: List[str] = []
+    current_bytes = 0
+    for line in block.splitlines(keepends=True):
+        line_bytes = len(line.encode("utf-8"))
+        if current and (current_bytes + line_bytes > max_bytes or len(current) >= max_lines):
+            parts.append("".join(current))
+            current = []
+            current_bytes = 0
+        if line_bytes > max_bytes:
+            if current:
+                parts.append("".join(current))
+                current = []
+                current_bytes = 0
+            # Preserve unusually long generated/source lines rather than silently dropping them.
+            parts.append(line)
+            continue
+        current.append(line)
+        current_bytes += line_bytes
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def partition_diff(
+    diff: str,
+    max_bytes: int,
+    max_lines: int,
+    max_review_calls: int,
+) -> Tuple[List[DiffSelection], Tuple[str, ...], int]:
+    """Partition all eligible diff text into bounded review requests."""
+
+    if max_bytes <= 0 or max_lines <= 0 or max_review_calls <= 0:
+        raise ReviewError("Review chunk limits must be positive")
+    blocks, skipped, included_files = _eligible_diff_blocks(diff)
+    chunks: List[DiffSelection] = []
+    current: List[str] = []
+    current_paths: List[str] = []
+    current_bytes = 0
+    current_lines = 0
+
+    def flush() -> None:
+        nonlocal current, current_paths, current_bytes, current_lines
+        if current:
+            chunks.append(
+                DiffSelection(
+                    text="".join(current),
+                    skipped_paths=(),
+                    truncated=False,
+                    included_files=len(set(current_paths)),
+                    chunk_paths=tuple(dict.fromkeys(current_paths)),
+                )
+            )
+            current = []
+            current_paths = []
+            current_bytes = 0
+            current_lines = 0
+
+    for path, block in blocks:
+        for part in _split_diff_block(block, max_bytes, max_lines):
+            part_bytes = len(part.encode("utf-8"))
+            part_lines = len(part.splitlines())
+            if current and (current_bytes + part_bytes > max_bytes or current_lines + part_lines > max_lines):
+                flush()
+            current.append(part)
+            current_paths.append(path)
+            current_bytes += part_bytes
+            current_lines += part_lines
+    flush()
+
+    if not chunks:
+        chunks = [DiffSelection("", (), False, 0, ())]
+    if len(chunks) > max_review_calls:
+        raise ReviewError(
+            "Pull request diff requires %s review calls, exceeding the configured limit of %s"
+            % (len(chunks), max_review_calls)
+        )
+    return chunks, skipped, included_files
+
+
 PRIVATE_KEY_PATTERN = re.compile(
     r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", re.DOTALL
 )
@@ -433,11 +533,12 @@ def read_guidance(root: Path, paths: Sequence[str] = ("CONTRIBUTING.md", "ARCHIT
 def build_prompt(selection: DiffSelection, guidance: str) -> str:
     skipped = ", ".join(selection.skipped_paths) if selection.skipped_paths else "none"
     limitation = "The diff was truncated." if selection.truncated else "The diff was not truncated."
+    chunk_files = ", ".join(selection.chunk_paths) if selection.chunk_paths else "all selected files"
     return (
         "Repository guidance:\n%s\n\n"
-        "Review metadata: included files=%s; skipped paths=%s; %s\n\n"
+        "Review metadata: included files=%s; chunk files=%s; skipped paths=%s; %s\n\n"
         "BEGIN UNTRUSTED PULL REQUEST DIFF\n%s\nEND UNTRUSTED PULL REQUEST DIFF"
-        % (guidance, selection.included_files, skipped, limitation, redact_sensitive(selection.text))
+        % (guidance, selection.included_files, chunk_files, skipped, limitation, redact_sensitive(selection.text))
     )
 
 
@@ -675,6 +776,55 @@ def parse_review(content: str) -> Review:
     return Review(summary=summary, findings=tuple(normalized))
 
 
+SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def merge_reviews(reviews: Sequence[Review]) -> Review:
+    """Merge chunk reviews deterministically without another provider call."""
+
+    if not reviews:
+        raise ReviewError("No chunk reviews were completed")
+    if len(reviews) == 1:
+        return Review(reviews[0].summary, reviews[0].findings, review_parts=1)
+
+    selected: Dict[Tuple[str, Optional[int], str], Dict[str, Any]] = {}
+    for review in reviews:
+        for finding in review.findings:
+            title_key = re.sub(r"\s+", " ", finding["title"].strip().lower())
+            key = (finding["file"], finding["line"], title_key)
+            previous = selected.get(key)
+            if previous is None:
+                selected[key] = finding
+                continue
+            previous_rank = SEVERITY_RANK[previous["severity"]]
+            current_rank = SEVERITY_RANK[finding["severity"]]
+            if current_rank < previous_rank or (
+                current_rank == previous_rank
+                and (finding["detail"], finding.get("suggestion", ""))
+                < (previous["detail"], previous.get("suggestion", ""))
+            ):
+                selected[key] = finding
+
+    findings = sorted(
+        selected.values(),
+        key=lambda finding: (
+            SEVERITY_RANK[finding["severity"]],
+            finding["file"],
+            finding["line"] if finding["line"] is not None else 2**31,
+            finding["title"].lower(),
+        ),
+    )[:MAX_FINDINGS]
+    if findings:
+        summary = (
+            "Reviewed %s bounded diff chunks and retained %s actionable finding(s) "
+            "after deterministic deduplication."
+            % (len(reviews), len(findings))
+        )
+    else:
+        summary = "Reviewed %s bounded diff chunks; no actionable findings were returned." % len(reviews)
+    return Review(summary=summary, findings=tuple(findings), review_parts=len(reviews))
+
+
 def call_opencode(
     config: ReviewConfig,
     prompt: str,
@@ -739,6 +889,7 @@ def render_comment(review: Review, config: ReviewConfig, selection: DiffSelectio
             selection.included_files,
             "diff truncated" if selection.truncated else "diff within configured limits",
         ),
+        "**Review calls:** `%s` bounded provider call(s)" % review.review_parts,
         "",
         _safe_markdown(review.summary),
     ]
@@ -770,6 +921,42 @@ def _comment_url(config: ReviewConfig, suffix: str) -> str:
         config,
         "/repos/%s/issues/%s/comments%s"
         % (quote(config.repository, safe="/"), config.pull_request, suffix),
+    )
+
+
+def review_diff(
+    config: ReviewConfig,
+    diff: str,
+    guidance: str,
+    session_id: str,
+    opener: Optional[Callable[..., Any]] = None,
+) -> Tuple[Review, DiffSelection]:
+    """Review every eligible diff chunk and merge results locally."""
+
+    chunks, skipped_paths, included_files = partition_diff(
+        diff,
+        config.max_diff_bytes,
+        config.max_diff_lines,
+        config.max_review_calls,
+    )
+    reviews: List[Review] = []
+    for index, chunk in enumerate(chunks, start=1):
+        try:
+            reviews.append(
+                call_opencode(
+                    config,
+                    build_prompt(chunk, guidance),
+                    "%s-chunk-%s-of-%s" % (session_id, index, len(chunks)),
+                    opener,
+                )
+            )
+        except ReviewError as exc:
+            raise ReviewError(
+                "Review chunk %s/%s failed: %s" % (index, len(chunks), exc)
+            ) from exc
+    return (
+        merge_reviews(reviews),
+        DiffSelection("", skipped_paths, False, included_files),
     )
 
 
@@ -827,23 +1014,21 @@ def main() -> int:
             return 0
         config = load_config(values)
         try:
-            selection = select_diff(
-                fetch_pull_request_diff(config), config.max_diff_bytes, config.max_diff_lines
-            )
+            diff = fetch_pull_request_diff(config)
         except ReviewError as exc:
             raise ReviewError("GitHub diff retrieval failed: %s" % exc) from exc
+        pull_request = event.get("pull_request", {})
+        commit = pull_request.get("head", {}).get("sha", "unknown") if isinstance(pull_request, dict) else "unknown"
         guidance = read_guidance(Path.cwd())
         try:
-            review = call_opencode(
+            review, selection = review_diff(
                 config,
-                build_prompt(selection, guidance),
-                "github-actions-pr-%s-%s"
-                % (config.pull_request, event.get("pull_request", {}).get("head", {}).get("sha", "unknown")),
+                diff,
+                guidance,
+                "github-actions-pr-%s-%s" % (config.pull_request, commit),
             )
         except ReviewError as exc:
             raise ReviewError("OpenCode Go request failed: %s" % exc) from exc
-        pull_request = event.get("pull_request", {})
-        commit = pull_request.get("head", {}).get("sha", "unknown") if isinstance(pull_request, dict) else "unknown"
         try:
             publish_comment(config, render_comment(review, config, selection, str(commit)))
         except ReviewError as exc:
