@@ -23,10 +23,10 @@ DEFAULT_MODEL = "kimi-k2.7-code"
 DEFAULT_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
 DEFAULT_PROTOCOL = "chat-completions"
 MARKER = "<!-- opencode-go-ai-review -->"
-DEFAULT_MAX_DIFF_BYTES = 80_000
+DEFAULT_MAX_DIFF_BYTES = 48_000
 DEFAULT_MAX_DIFF_LINES = 4_000
 DEFAULT_MAX_REVIEW_CALLS = 8
-DEFAULT_MAX_OUTPUT_TOKENS = 6_000
+DEFAULT_MAX_OUTPUT_TOKENS = 16_000
 MAX_CHUNK_FINDINGS = 5
 MAX_FINDINGS = 20
 MAX_SUMMARY_LENGTH = 2_000
@@ -526,7 +526,7 @@ def redact_sensitive(text: str) -> str:
     return ASSIGNMENT_PATTERN.sub(r"\1[REDACTED]", redacted)
 
 
-def read_guidance(root: Path, paths: Sequence[str] = ("CONTRIBUTING.md", "ARCHITECTURE.md")) -> str:
+def read_guidance(root: Path, paths: Sequence[str] = (".github/reviewer-guidance.md",)) -> str:
     sections: List[str] = []
     for relative in paths:
         candidate = Path(relative)

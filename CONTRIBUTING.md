@@ -187,16 +187,18 @@ To enable the workflow, configure the following outside the repository:
   variables when selecting a model from another OpenCode Go API family. The
   supported protocols are `chat-completions` and `responses`.
 - Large diffs are reviewed through multiple bounded provider calls. The default
-  per-call diff budget is 80 KB and the default maximum is 8 calls. An optional
+  per-call diff budget is 48 KB and the default maximum is 8 calls. An optional
   `OPENCODE_GO_MAX_REVIEW_CALLS` repository or organization variable can lower
   or raise that ceiling up to 32; reviews fail rather than silently omitting
   diff content when the ceiling is exceeded.
 - Provider calls default to a 180-second timeout. Set `OPENCODE_GO_TIMEOUT` as a
   repository or organization variable when the selected model needs more or less
   time, within the allowed 1-to-600-second range.
-- Model output defaults to `6,000` tokens, and each chunk is instructed to return
+- Model output defaults to `16,000` tokens, and each chunk is instructed to return
   no more than five concise findings. Set `OPENCODE_GO_MAX_OUTPUT_TOKENS` when a
   selected model needs a different output budget, up to 16,000 tokens.
+- The reviewer sends the compact trusted context in `.github/reviewer-guidance.md`
+  rather than the full `CONTRIBUTING.md` and `ARCHITECTURE.md` documents.
 
 Never put the API key in a workflow argument, source file, repository variable,
 commit, issue, pull-request comment, or generated artifact. The workflow uses a

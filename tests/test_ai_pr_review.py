@@ -88,6 +88,12 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.protocol, "responses")
         self.assertEqual(config.pull_request, 7)
 
+    def test_defaults_use_bounded_chunk_and_output_budgets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        self.assertEqual(config.max_diff_bytes, 48_000)
+        self.assertEqual(config.max_output_tokens, 16_000)
+
     def test_invalid_endpoint_protocol_pair_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(ai_pr_review.ReviewError):
@@ -112,6 +118,15 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class DiffAndRedactionTests(unittest.TestCase):
+    def test_default_guidance_uses_compact_reviewer_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            guidance_path = root / ".github" / "reviewer-guidance.md"
+            guidance_path.parent.mkdir()
+            guidance_path.write_text("compact guidance", encoding="utf-8")
+            (root / "CONTRIBUTING.md").write_text("full contributor document", encoding="utf-8")
+            self.assertEqual(ai_pr_review.read_guidance(root), "### .github/reviewer-guidance.md\ncompact guidance")
+
     def test_excludes_binary_and_generated_files(self):
         diff = (
             "diff --git a/src/main.py b/src/main.py\n"
