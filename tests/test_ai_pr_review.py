@@ -338,6 +338,30 @@ class ProviderTests(unittest.TestCase):
             ai_pr_review.call_opencode(config, "review prompt", "session-html", opener)
         self.assertNotIn("provider secret", str(context.exception))
 
+    def test_invalid_model_output_has_safe_completion_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        response = {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": "partial model output with secret-value"},
+                }
+            ],
+            "usage": {"prompt_tokens": 8000, "completion_tokens": 2000, "total_tokens": 10000},
+        }
+        with self.assertRaisesRegex(
+            ai_pr_review.ReviewError,
+            r"model_output_shape=text.*finish_reason=length.*completion_tokens=2000",
+        ) as context:
+            ai_pr_review.call_opencode(
+                config,
+                "review prompt",
+                "session-invalid-model-output",
+                FakeOpener([response]),
+            )
+        self.assertNotIn("secret-value", str(context.exception))
+
     def test_malformed_response_and_provider_error_are_rejected(self):
         with self.assertRaises(ai_pr_review.ReviewError):
             ai_pr_review.parse_review("not json")

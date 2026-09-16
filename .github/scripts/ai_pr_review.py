@@ -583,7 +583,7 @@ def _json_content(content: str) -> Any:
     try:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError) as exc:
-        raise ReviewError("OpenCode Go response was not valid JSON") from exc
+        raise ReviewError("OpenCode Go model output was not valid JSON") from exc
 
 
 def _response_shape(body: bytes, content_type: str) -> str:
@@ -609,6 +609,76 @@ def _safe_content_type(content_type: str) -> str:
 
 def _safe_header(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._:/+-]", "", value)[:120] or "unknown"
+
+
+def _model_output_shape(content: str) -> str:
+    stripped = content.strip()
+    if not stripped:
+        return "empty"
+    if re.fullmatch(r"```(?:json)?\s*.*?\s*```", stripped, flags=re.IGNORECASE | re.DOTALL):
+        return "fenced-json"
+    if stripped.startswith("```"):
+        return "fenced-or-incomplete"
+    if stripped.startswith(("{", "[")):
+        return "json-like"
+    return "text"
+
+
+def _provider_completion_diagnostics(
+    payload: Optional[Mapping[str, Any]], protocol: str
+) -> str:
+    if not isinstance(payload, Mapping):
+        return "provider_metadata=unavailable"
+    values: List[str] = []
+    if protocol == "chat-completions":
+        choices = payload.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            finish_reason = choices[0].get("finish_reason")
+            if finish_reason is not None:
+                values.append("finish_reason=%s" % _safe_header(str(finish_reason)))
+    else:
+        status = payload.get("status")
+        if status is not None:
+            values.append("status=%s" % _safe_header(str(status)))
+        incomplete = payload.get("incomplete_details")
+        if isinstance(incomplete, dict) and incomplete.get("reason") is not None:
+            values.append("incomplete_reason=%s" % _safe_header(str(incomplete["reason"])))
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        for key in (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+        ):
+            if usage.get(key) is not None:
+                values.append("%s=%s" % (key, _safe_header(str(usage[key]))))
+    return ", ".join(values) if values else "provider_metadata=unavailable"
+
+
+def _model_output_diagnostics(
+    content: str, payload: Optional[Mapping[str, Any]], protocol: str
+) -> str:
+    encoded = content.encode("utf-8", errors="replace")
+    return "model_output_chars=%s, model_output_bytes=%s, model_output_shape=%s, model_output_sha256=%s, %s" % (
+        len(content),
+        len(encoded),
+        _model_output_shape(content),
+        hashlib.sha256(encoded).hexdigest()[:16],
+        _provider_completion_diagnostics(payload, protocol),
+    )
+
+
+def _parse_model_review(
+    content: str, payload: Optional[Mapping[str, Any]], protocol: str
+) -> Review:
+    try:
+        return parse_review(content)
+    except ReviewError as exc:
+        raise ReviewError(
+            "%s (%s)" % (exc, _model_output_diagnostics(content, payload, protocol))
+        ) from exc
 
 
 def _response_diagnostics(response: HTTPResponse) -> str:
@@ -718,7 +788,7 @@ def _parse_provider_response(response: HTTPResponse, protocol: str) -> Review:
     except json.JSONDecodeError as exc:
         streamed = _sse_text(response.body, protocol)
         if streamed is not None:
-            return parse_review(streamed)
+            return _parse_model_review(streamed, None, protocol)
         raise ReviewError(
             "OpenCode Go response was not valid JSON (%s)"
             % _response_diagnostics(response)
@@ -728,7 +798,14 @@ def _parse_provider_response(response: HTTPResponse, protocol: str) -> Review:
             "OpenCode Go response was not a JSON object (%s)"
             % _response_diagnostics(response)
         )
-    return parse_review(_response_content(payload, protocol))
+    try:
+        content = _response_content(payload, protocol)
+    except ReviewError as exc:
+        raise ReviewError(
+            "%s (model_output=unavailable, %s)"
+            % (exc, _provider_completion_diagnostics(payload, protocol))
+        ) from exc
+    return _parse_model_review(content, payload, protocol)
 
 
 def _safe_text(value: Any, field: str, maximum: int = MAX_FIELD_LENGTH) -> str:
