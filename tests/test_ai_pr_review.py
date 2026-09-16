@@ -16,8 +16,10 @@ SPEC.loader.exec_module(ai_pr_review)
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, headers=None, status=200):
         self.payload = payload
+        self.headers = headers or {}
+        self.status = status
 
     def __enter__(self):
         return self
@@ -41,6 +43,8 @@ class FakeOpener:
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
+        if isinstance(response, FakeResponse):
+            return response
         return FakeResponse(response)
 
 
@@ -164,6 +168,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(review.summary, "Looks good")
         self.assertEqual(body["model"], ai_pr_review.DEFAULT_MODEL)
         self.assertNotIn("response_format", body)
+        self.assertFalse(body["stream"])
         self.assertNotIn("opencode-secret", request.data.decode("utf-8"))
         self.assertEqual(headers["X-opencode-session"], "session-7")
         self.assertGreater(timeout, 0)
@@ -182,6 +187,56 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(review.summary, "Reviewed")
         body = json.loads(opener.requests[0][0].data.decode("utf-8"))
         self.assertIn("input", body)
+        self.assertFalse(body["stream"])
+
+    def test_bom_prefixed_json_response_is_supported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        payload = b'\xef\xbb\xbf{"choices":[{"message":{"content":"{\\"summary\\":\\"Reviewed\\",\\"findings\\":[]}"}}]}'
+        opener = FakeOpener([payload])
+        review = ai_pr_review.call_opencode(config, "review prompt", "session-bom", opener)
+        self.assertEqual(review.summary, "Reviewed")
+
+    def test_chat_sse_response_is_reassembled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        payload = (
+            b'data: {"choices":[{"delta":{"content":"{\\"summary\\":\\"Looks "}}]}\n\n'
+            b'data: {"choices":[{"delta":{"content":"good\\",\\"findings\\":[]}"}}]}\n\n'
+            b"data: [DONE]\n\n"
+        )
+        opener = FakeOpener([payload])
+        review = ai_pr_review.call_opencode(config, "review prompt", "session-sse", opener)
+        self.assertEqual(review.summary, "Looks good")
+
+    def test_responses_sse_response_is_reassembled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(
+                tmpdir,
+                OPENCODE_GO_ENDPOINT="https://opencode.ai/zen/go/v1/responses",
+                OPENCODE_GO_PROTOCOL="responses",
+            )
+        payload = (
+            b'data: {"type":"response.output_text.delta","delta":"{\\"summary\\":\\"Reviewed\\""}\n\n'
+            b'data: {"type":"response.output_text.delta","delta":",\\"findings\\":[]}"}\n\n'
+            b"data: [DONE]\n\n"
+        )
+        opener = FakeOpener([payload])
+        review = ai_pr_review.call_opencode(config, "review prompt", "session-responses-sse", opener)
+        self.assertEqual(review.summary, "Reviewed")
+
+    def test_non_json_provider_response_has_safe_shape_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        opener = FakeOpener(
+            [FakeResponse(b"<html>provider secret</html>", {"Content-Type": "text/html"})]
+        )
+        with self.assertRaisesRegex(
+            ai_pr_review.ReviewError,
+            r"content_type=text/html.*shape=html",
+        ) as context:
+            ai_pr_review.call_opencode(config, "review prompt", "session-html", opener)
+        self.assertNotIn("provider secret", str(context.exception))
 
     def test_malformed_response_and_provider_error_are_rejected(self):
         with self.assertRaises(ai_pr_review.ReviewError):

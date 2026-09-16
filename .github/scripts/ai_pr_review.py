@@ -84,6 +84,13 @@ class Review:
     findings: Tuple[Dict[str, Any], ...]
 
 
+@dataclass(frozen=True)
+class HTTPResponse:
+    body: bytes
+    content_type: str
+    status: int
+
+
 def _required(env: Mapping[str, str], name: str) -> str:
     value = env.get(name, "").strip()
     if not value:
@@ -192,12 +199,23 @@ def _http_request(
     body: Optional[bytes],
     timeout: int,
     opener: Optional[Callable[..., Any]] = None,
-) -> bytes:
+    include_metadata: bool = False,
+) -> Any:
     request = Request(url, data=body, headers=dict(headers), method=method)
     try:
         open_fn = opener or urlopen
         with open_fn(request, timeout=timeout) as response:
-            return response.read()
+            payload = response.read()
+            if not include_metadata:
+                return payload
+            response_headers = getattr(response, "headers", {})
+            content_type = response_headers.get("Content-Type", "")
+            status = int(getattr(response, "status", getattr(response, "code", 200)))
+            return HTTPResponse(
+                body=payload,
+                content_type=str(content_type),
+                status=status,
+            )
     except HTTPError as exc:
         detail = ""
         try:
@@ -437,6 +455,120 @@ def _json_content(content: str) -> Any:
         raise ReviewError("OpenCode Go response was not valid JSON") from exc
 
 
+def _response_shape(body: bytes, content_type: str) -> str:
+    """Classify a provider body without including untrusted response text."""
+
+    normalized_type = content_type.lower()
+    stripped = body.lstrip()
+    if "event-stream" in normalized_type or stripped.startswith(b"data:"):
+        return "sse"
+    if not stripped:
+        return "empty"
+    if stripped.startswith((b"{", b"[")):
+        return "json-like"
+    if stripped.startswith(b"<"):
+        return "html"
+    return "text"
+
+
+def _safe_content_type(content_type: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9.+/-]", "", content_type.lower())
+    return value[:80] or "unknown"
+
+
+def _sse_text(body: bytes, protocol: str) -> Optional[str]:
+    """Reassemble text from common Chat Completions or Responses SSE events."""
+
+    try:
+        text = body.decode("utf-8-sig")
+    except UnicodeError:
+        return None
+    if not any(line.lstrip().startswith("data:") for line in text.splitlines()):
+        return None
+
+    events: List[Mapping[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        value = line[5:].strip()
+        if not value or value == "[DONE]":
+            continue
+        try:
+            event = json.loads(value)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+
+    fragments: List[str] = []
+    for event in events:
+        if protocol == "chat-completions":
+            choices = event.get("choices")
+            if not isinstance(choices, list):
+                continue
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                delta = choice.get("delta")
+                if isinstance(delta, dict):
+                    content = delta.get("content")
+                    if isinstance(content, str):
+                        fragments.append(content)
+                    elif isinstance(content, list):
+                        fragments.extend(
+                            item.get("text", "")
+                            for item in content
+                            if isinstance(item, dict) and isinstance(item.get("text", ""), str)
+                        )
+        else:
+            if isinstance(event.get("delta"), str):
+                fragments.append(event["delta"])
+            elif isinstance(event.get("text"), str):
+                fragments.append(event["text"])
+
+    if fragments:
+        return "".join(fragments)
+
+    for event in reversed(events):
+        try:
+            return _response_content(event, protocol)
+        except ReviewError:
+            continue
+    return None
+
+
+def _parse_provider_response(response: HTTPResponse, protocol: str) -> Review:
+    try:
+        decoded = response.body.decode("utf-8-sig")
+    except UnicodeError as exc:
+        raise ReviewError(
+            "OpenCode Go response was not valid UTF-8 (content_type=%s, bytes=%s)"
+            % (_safe_content_type(response.content_type), len(response.body))
+        ) from exc
+
+    try:
+        payload = json.loads(decoded)
+    except json.JSONDecodeError as exc:
+        streamed = _sse_text(response.body, protocol)
+        if streamed is not None:
+            return parse_review(streamed)
+        raise ReviewError(
+            "OpenCode Go response was not valid JSON (content_type=%s, bytes=%s, shape=%s)"
+            % (
+                _safe_content_type(response.content_type),
+                len(response.body),
+                _response_shape(response.body, response.content_type),
+            )
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ReviewError(
+            "OpenCode Go response was not a JSON object (content_type=%s, bytes=%s)"
+            % (_safe_content_type(response.content_type), len(response.body))
+        )
+    return parse_review(_response_content(payload, protocol))
+
+
 def _safe_text(value: Any, field: str, maximum: int = MAX_FIELD_LENGTH) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ReviewError("Review field %s is invalid" % field)
@@ -496,6 +628,7 @@ def call_opencode(
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": 2_000,
+            "stream": False,
         }
     else:
         body = {
@@ -505,6 +638,7 @@ def call_opencode(
                 {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
             ],
             "max_output_tokens": 2_000,
+            "stream": False,
         }
     headers = {
         "Accept": "application/json",
@@ -513,21 +647,18 @@ def call_opencode(
         "User-Agent": "frame-clarity-analyzer-opencode-review/1",
         "x-opencode-session": session_id,
     }
-    payload = _http_request(
+    response = _http_request(
         config.endpoint,
         "POST",
         headers,
         json.dumps(body, separators=(",", ":")).encode("utf-8"),
         config.timeout,
         opener,
+        include_metadata=True,
     )
-    try:
-        response = json.loads(payload.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        raise ReviewError("OpenCode Go returned an invalid response") from exc
-    if not isinstance(response, dict):
+    if not isinstance(response, HTTPResponse):
         raise ReviewError("OpenCode Go returned an invalid response")
-    return parse_review(_response_content(response, config.protocol))
+    return _parse_provider_response(response, config.protocol)
 
 
 def _safe_markdown(text: str) -> str:
