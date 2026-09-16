@@ -2,6 +2,7 @@ import importlib.util
 import gzip
 import io
 import json
+import socket
 import sys
 import tempfile
 import unittest
@@ -370,6 +371,13 @@ class ProviderTests(unittest.TestCase):
         opener = FakeOpener([ai_pr_review.URLError("provider detail")])
         with self.assertRaisesRegex(ai_pr_review.ReviewError, "HTTP request failed"):
             ai_pr_review.call_opencode(config, "prompt", "session", opener)
+
+    def test_provider_timeout_has_explicit_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        opener = FakeOpener([socket.timeout()])
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "timed out after 180 seconds"):
+            ai_pr_review.call_opencode(config, "prompt", "session-timeout", opener)
 
     def test_http_error_exposes_only_sanitized_provider_message(self):
         with tempfile.TemporaryDirectory() as tmpdir:

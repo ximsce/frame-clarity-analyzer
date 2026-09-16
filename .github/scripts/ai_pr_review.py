@@ -8,6 +8,7 @@ import gzip
 import json
 import os
 import re
+import socket
 import sys
 import zlib
 from dataclasses import dataclass
@@ -178,7 +179,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
     model = values.get("OPENCODE_GO_MODEL", "").strip() or DEFAULT_MODEL
     if len(model) > 200 or any(character.isspace() for character in model):
         raise ReviewError("OPENCODE_GO_MODEL is invalid")
-    timeout = _positive_int(values, "OPENCODE_GO_TIMEOUT", 90, 600)
+    timeout = _positive_int(values, "OPENCODE_GO_TIMEOUT", 180, 600)
     max_diff_bytes = _positive_int(values, "OPENCODE_GO_MAX_DIFF_BYTES", DEFAULT_MAX_DIFF_BYTES, 1_000_000)
     max_diff_lines = _positive_int(values, "OPENCODE_GO_MAX_DIFF_LINES", DEFAULT_MAX_DIFF_LINES, 20_000)
     max_review_calls = _positive_int(values, "OPENCODE_GO_MAX_REVIEW_CALLS", DEFAULT_MAX_REVIEW_CALLS, 32)
@@ -273,6 +274,8 @@ def _http_request(
             )
         suffix = ": %s" % detail if detail else ""
         raise ReviewError("HTTP request failed with status %s%s" % (exc.code, suffix)) from exc
+    except (socket.timeout, TimeoutError) as exc:
+        raise ReviewError("HTTP request timed out after %s seconds" % timeout) from exc
     except (OSError, URLError, ValueError) as exc:
         raise ReviewError("HTTP request failed") from exc
 
