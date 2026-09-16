@@ -253,3 +253,5 @@ OpenCode and replace the GitHub Actions secret.
 Do not commit raw video frames, copied clear frames, API keys, progress files, or
 analysis result files. The repository ignores the current generated JSON and
 output directory, but verify `git status` before creating a commit.
+
+Credit: Matt Koch and AI
