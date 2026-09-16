@@ -26,6 +26,7 @@ jobs:
       OPENCODE_GO_MODEL: ${{ vars.OPENCODE_GO_MODEL }}
       OPENCODE_GO_ENDPOINT: ${{ vars.OPENCODE_GO_ENDPOINT }}
       OPENCODE_GO_PROTOCOL: ${{ vars.OPENCODE_GO_PROTOCOL }}
+      OPENCODE_GO_MAX_REVIEW_CALLS: ${{ vars.OPENCODE_GO_MAX_REVIEW_CALLS }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - name: Checkout trusted base revision

@@ -97,17 +97,30 @@ review job.
   and path limits
 - **THEN** the model receives the relevant text diff and review guidance
 
-#### Scenario: Diff exceeds the configured limit
+#### Scenario: Large diff is split into bounded reviews
 
-- **WHEN** the pull request diff exceeds the configured input limit
-- **THEN** the workflow truncates or skips the excess according to documented
-  behavior and identifies that limitation in the resulting comment
+- **WHEN** the eligible text diff exceeds one provider request's configured
+  budget
+- **THEN** the workflow sends multiple bounded review requests whose combined
+  chunks cover all eligible diff content
 
 #### Scenario: Binary or generated content is present
 
 - **WHEN** the pull request contains binary, media, or excluded generated files
 - **THEN** those contents are not sent to OpenCode Go and the review remains
   limited to eligible text changes
+
+#### Scenario: Chunk findings are merged
+
+- **WHEN** all bounded review calls return valid findings
+- **THEN** the workflow deterministically deduplicates and orders the findings
+  before publishing one advisory comment
+
+#### Scenario: Diff exceeds the call ceiling
+
+- **WHEN** reviewing the full eligible diff would require more provider calls
+  than the configured maximum
+- **THEN** the workflow exits nonzero and does not publish an incomplete review
 
 #### Scenario: Pull request contains executable workflow changes
 

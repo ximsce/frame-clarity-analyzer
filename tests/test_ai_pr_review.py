@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -144,8 +145,91 @@ class DiffAndRedactionTests(unittest.TestCase):
         self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyz", redacted)
         self.assertNotIn("BEGIN PRIVATE KEY", redacted)
 
+    def test_partition_diff_preserves_all_eligible_text_across_chunks(self):
+        diff = (
+            "diff --git a/one.py b/one.py\n"
+            "--- a/one.py\n+++ b/one.py\n@@ -1 +1 @@\n+one\n"
+            "diff --git a/two.py b/two.py\n"
+            "--- a/two.py\n+++ b/two.py\n@@ -1 +1 @@\n+two\n"
+        )
+        chunks, skipped, included = ai_pr_review.partition_diff(diff, 100, 100, 4)
+        self.assertEqual(skipped, ())
+        self.assertEqual(included, 2)
+        self.assertEqual("".join(chunk.text for chunk in chunks), diff)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0].chunk_paths, ("one.py",))
+        self.assertEqual(chunks[1].chunk_paths, ("two.py",))
+
+    def test_partition_diff_rejects_excessive_chunk_count(self):
+        diff = "".join(
+            "diff --git a/file%s.py b/file%s.py\n--- a/file%s.py\n+++ b/file%s.py\n+line\n"
+            % (index, index, index, index)
+            for index in range(3)
+        )
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "requires 3 review calls"):
+            ai_pr_review.partition_diff(diff, 70, 100, 2)
+
+    def test_merge_reviews_deduplicates_and_prefers_higher_severity(self):
+        reviews = [
+            ai_pr_review.Review(
+                "first",
+                (
+                    {
+                        "severity": "low",
+                        "file": "src/main.py",
+                        "line": 10,
+                        "title": "Duplicate issue",
+                        "detail": "weak detail",
+                    },
+                ),
+            ),
+            ai_pr_review.Review(
+                "second",
+                (
+                    {
+                        "severity": "high",
+                        "file": "src/main.py",
+                        "line": 10,
+                        "title": "Duplicate issue",
+                        "detail": "strong detail",
+                    },
+                    {
+                        "severity": "medium",
+                        "file": "src/other.py",
+                        "line": None,
+                        "title": "Another issue",
+                        "detail": "other detail",
+                    },
+                ),
+            ),
+        ]
+        merged = ai_pr_review.merge_reviews(reviews)
+        self.assertEqual(merged.review_parts, 2)
+        self.assertEqual(len(merged.findings), 2)
+        self.assertEqual(merged.findings[0]["severity"], "high")
+        self.assertIn("2 bounded diff chunks", merged.summary)
+
 
 class ProviderTests(unittest.TestCase):
+    def test_large_review_uses_one_provider_call_per_chunk(self):
+        diff = (
+            "diff --git a/one.py b/one.py\n"
+            "--- a/one.py\n+++ b/one.py\n@@ -1 +1 @@\n+one\n"
+            "diff --git a/two.py b/two.py\n"
+            "--- a/two.py\n+++ b/two.py\n@@ -1 +1 @@\n+two\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = replace(make_config(tmpdir), max_diff_bytes=100, max_diff_lines=100, max_review_calls=4)
+        response = {"choices": [{"message": {"content": '{"summary":"ok","findings":[]}'}}]}
+        opener = FakeOpener([response, response])
+        review, selection = ai_pr_review.review_diff(config, diff, "guidance", "session", opener)
+        self.assertEqual(len(opener.requests), 2)
+        self.assertEqual(review.review_parts, 2)
+        self.assertEqual(selection.included_files, 2)
+        request_text = "\n".join(request.data.decode("utf-8") for request, _ in opener.requests)
+        self.assertIn("one.py", request_text)
+        self.assertIn("two.py", request_text)
+
     def test_chat_request_and_response_are_validated(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = make_config(tmpdir)
@@ -339,6 +423,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("head.sha }}", workflow.split("ref:", 1)[-1].splitlines()[0])
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("OPENCODE_GO_API_KEY", workflow)
+        self.assertIn("OPENCODE_GO_MAX_REVIEW_CALLS", workflow)
         self.assertIn("contents: read", workflow)
         self.assertIn("issues: write", workflow)
         self.assertIn("pull-requests: write", workflow)
