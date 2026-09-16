@@ -27,7 +27,7 @@ class CliTests(unittest.TestCase):
         completed = subprocess.run(
             [sys.executable, "identify_clearest_frames.py", "--help"],
             capture_output=True,
-            text=True,
+            text=False,
             check=False,
         )
         self.assertEqual(completed.returncode, 0)
