@@ -230,6 +230,7 @@ class ProviderTests(unittest.TestCase):
         request_text = "\n".join(request.data.decode("utf-8") for request, _ in opener.requests)
         self.assertIn("one.py", request_text)
         self.assertIn("two.py", request_text)
+        self.assertIn("at most 5 findings", request_text)
 
     def test_chat_request_and_response_are_validated(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -255,6 +256,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(body["model"], ai_pr_review.DEFAULT_MODEL)
         self.assertNotIn("response_format", body)
         self.assertFalse(body["stream"])
+        self.assertEqual(body["max_tokens"], config.max_output_tokens)
         self.assertNotIn("opencode-secret", request.data.decode("utf-8"))
         self.assertEqual(headers["X-opencode-session"], "session-7")
         self.assertGreater(timeout, 0)
@@ -274,6 +276,7 @@ class ProviderTests(unittest.TestCase):
         body = json.loads(opener.requests[0][0].data.decode("utf-8"))
         self.assertIn("input", body)
         self.assertFalse(body["stream"])
+        self.assertEqual(body["max_output_tokens"], config.max_output_tokens)
 
     def test_bom_prefixed_json_response_is_supported(self):
         with tempfile.TemporaryDirectory() as tmpdir:

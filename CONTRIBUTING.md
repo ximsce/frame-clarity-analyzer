@@ -194,6 +194,9 @@ To enable the workflow, configure the following outside the repository:
 - Provider calls default to a 180-second timeout. Set `OPENCODE_GO_TIMEOUT` as a
   repository or organization variable when the selected model needs more or less
   time, within the allowed 1-to-600-second range.
+- Model output defaults to `6,000` tokens, and each chunk is instructed to return
+  no more than five concise findings. Set `OPENCODE_GO_MAX_OUTPUT_TOKENS` when a
+  selected model needs a different output budget, up to 16,000 tokens.
 
 Never put the API key in a workflow argument, source file, repository variable,
 commit, issue, pull-request comment, or generated artifact. The workflow uses a
