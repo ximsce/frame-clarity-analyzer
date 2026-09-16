@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import gzip
 import json
 import os
 import re
 import sys
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -89,6 +92,7 @@ class HTTPResponse:
     body: bytes
     content_type: str
     status: int
+    headers: Mapping[str, str]
 
 
 def _required(env: Mapping[str, str], name: str) -> str:
@@ -211,10 +215,36 @@ def _http_request(
             response_headers = getattr(response, "headers", {})
             content_type = response_headers.get("Content-Type", "")
             status = int(getattr(response, "status", getattr(response, "code", 200)))
+            content_encoding = str(response_headers.get("Content-Encoding", "")).lower()
+            if "gzip" in content_encoding:
+                try:
+                    payload = gzip.decompress(payload)
+                except (OSError, EOFError):
+                    pass
+            elif "deflate" in content_encoding:
+                try:
+                    payload = zlib.decompress(payload)
+                except zlib.error:
+                    pass
+            diagnostic_headers = {
+                name: str(response_headers.get(name, ""))
+                for name in (
+                    "Content-Length",
+                    "Content-Encoding",
+                    "Transfer-Encoding",
+                    "X-Request-ID",
+                    "X-Correlation-ID",
+                    "CF-Ray",
+                    "Retry-After",
+                    "Server",
+                )
+                if response_headers.get(name)
+            }
             return HTTPResponse(
                 body=payload,
                 content_type=str(content_type),
                 status=status,
+                headers=diagnostic_headers,
             )
     except HTTPError as exc:
         detail = ""
@@ -476,6 +506,41 @@ def _safe_content_type(content_type: str) -> str:
     return value[:80] or "unknown"
 
 
+def _safe_header(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._:/+-]", "", value)[:120] or "unknown"
+
+
+def _response_diagnostics(response: HTTPResponse) -> str:
+    request_id = (
+        response.headers.get("X-Request-ID")
+        or response.headers.get("X-Correlation-ID")
+        or response.headers.get("CF-Ray")
+    )
+    request_detail = "; request_id=%s" % _safe_header(request_id) if request_id else ""
+    server = response.headers.get("Server")
+    server_detail = "; server=%s" % _safe_header(server) if server else ""
+    transport_details = []
+    for name in ("Content-Length", "Content-Encoding", "Transfer-Encoding", "Retry-After"):
+        value = response.headers.get(name)
+        if value:
+            transport_details.append("%s=%s" % (name.lower().replace("-", "_"), _safe_header(value)))
+    transport_detail = "; " + ", ".join(transport_details) if transport_details else ""
+    digest = hashlib.sha256(response.body).hexdigest()[:16]
+    return (
+        "status=%s, content_type=%s, bytes=%s, shape=%s, body_sha256=%s%s%s%s"
+        % (
+            response.status,
+            _safe_content_type(response.content_type),
+            len(response.body),
+            _response_shape(response.body, response.content_type),
+            digest,
+            request_detail,
+            server_detail,
+            transport_detail,
+        )
+    )
+
+
 def _sse_text(body: bytes, protocol: str) -> Optional[str]:
     """Reassemble text from common Chat Completions or Responses SSE events."""
 
@@ -543,8 +608,8 @@ def _parse_provider_response(response: HTTPResponse, protocol: str) -> Review:
         decoded = response.body.decode("utf-8-sig")
     except UnicodeError as exc:
         raise ReviewError(
-            "OpenCode Go response was not valid UTF-8 (content_type=%s, bytes=%s)"
-            % (_safe_content_type(response.content_type), len(response.body))
+            "OpenCode Go response was not valid UTF-8 (%s)"
+            % _response_diagnostics(response)
         ) from exc
 
     try:
@@ -554,17 +619,13 @@ def _parse_provider_response(response: HTTPResponse, protocol: str) -> Review:
         if streamed is not None:
             return parse_review(streamed)
         raise ReviewError(
-            "OpenCode Go response was not valid JSON (content_type=%s, bytes=%s, shape=%s)"
-            % (
-                _safe_content_type(response.content_type),
-                len(response.body),
-                _response_shape(response.body, response.content_type),
-            )
+            "OpenCode Go response was not valid JSON (%s)"
+            % _response_diagnostics(response)
         ) from exc
     if not isinstance(payload, dict):
         raise ReviewError(
-            "OpenCode Go response was not a JSON object (content_type=%s, bytes=%s)"
-            % (_safe_content_type(response.content_type), len(response.body))
+            "OpenCode Go response was not a JSON object (%s)"
+            % _response_diagnostics(response)
         )
     return parse_review(_response_content(payload, protocol))
 
