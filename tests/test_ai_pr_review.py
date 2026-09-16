@@ -1,4 +1,5 @@
 import importlib.util
+import gzip
 import io
 import json
 import sys
@@ -197,6 +198,16 @@ class ProviderTests(unittest.TestCase):
         review = ai_pr_review.call_opencode(config, "review prompt", "session-bom", opener)
         self.assertEqual(review.summary, "Reviewed")
 
+    def test_compressed_json_response_is_supported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        payload = b'{"choices":[{"message":{"content":"{\\"summary\\":\\"Compressed\\",\\"findings\\":[]}"}}]}'
+        opener = FakeOpener(
+            [FakeResponse(gzip.compress(payload), {"Content-Encoding": "gzip"})]
+        )
+        review = ai_pr_review.call_opencode(config, "review prompt", "session-gzip", opener)
+        self.assertEqual(review.summary, "Compressed")
+
     def test_chat_sse_response_is_reassembled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = make_config(tmpdir)
@@ -229,11 +240,16 @@ class ProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = make_config(tmpdir)
         opener = FakeOpener(
-            [FakeResponse(b"<html>provider secret</html>", {"Content-Type": "text/html"})]
+            [
+                FakeResponse(
+                    b"<html>provider secret</html>",
+                    {"Content-Type": "text/html", "X-Request-ID": "request-123"},
+                )
+            ]
         )
         with self.assertRaisesRegex(
             ai_pr_review.ReviewError,
-            r"content_type=text/html.*shape=html",
+            r"status=200, content_type=text/html.*shape=html.*request_id=request-123",
         ) as context:
             ai_pr_review.call_opencode(config, "review prompt", "session-html", opener)
         self.assertNotIn("provider secret", str(context.exception))
