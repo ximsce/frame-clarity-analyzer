@@ -109,6 +109,33 @@ python -m pip install --upgrade "numpy<2"
 python -m pip check
 ```
 
+### Local CLIP Analyzer
+
+The default `clip` analyzer runs locally and requires PyTorch, Transformers, and
+Pillow. Install them through the repository requirements inside the activated
+virtual environment rather than installing the latest packages independently:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install --upgrade "numpy<2"
+python -c 'import torch, transformers; from PIL import Image; print(torch.__version__, transformers.__version__)'
+```
+
+`requirements.txt` pins `torch==2.1.1` and constrains `transformers<4.37` for
+compatibility. A newer Transformers release can fail during import with the
+installed PyTorch version. The default model is
+`openai/clip-vit-base-patch32`; Transformers downloads its files on the first
+CLIP run. To download and validate the model before running an analysis:
+
+```bash
+python -c 'from transformers import CLIPModel, CLIPProcessor; name="openai/clip-vit-base-patch32"; CLIPModel.from_pretrained(name); CLIPProcessor.from_pretrained(name); print("CLIP model ready")'
+```
+
+The model download requires network access once. Subsequent local CLIP runs use
+the cached files, and the default test suite does not download or initialize a
+model. Ensure the same virtual environment remains active when starting
+`identify_clearest_frames.py` or `visualize_pipeline.py`.
+
 Video-related development and integration checks also require `ffmpeg` and
 `ffprobe` on `PATH`. On macOS, install both with Homebrew:
 
@@ -228,3 +255,5 @@ OpenCode and replace the GitHub Actions secret.
 Do not commit raw video frames, copied clear frames, API keys, progress files, or
 analysis result files. The repository ignores the current generated JSON and
 output directory, but verify `git status` before creating a commit.
+
+Credit: Matt Koch and AI

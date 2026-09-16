@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frame Clarity Local Visualizer</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <p class="eyebrow">Frame Clarity Analyzer / Local inspection</p>
+      <h1>Find the clearest moments.</h1>
+      <p class="lede">A private, loopback-only view of one video pipeline run. Results are heuristic candidates for engineer review, not published memories.</p>
+    </header>
+    <section class="panel controls" aria-labelledby="run-heading">
+      <div>
+        <p class="eyebrow">One ephemeral run</p>
+        <h2 id="run-heading">Inspect a local video</h2>
+      </div>
+      <label class="file-input">Video file<input id="video" type="file" accept="video/*"></label>
+      <label>Sampling density<select id="fps"><option value="5" selected>5 FPS</option><option value="10">10 FPS</option><option value="15">15 FPS</option><option value="20">20 FPS</option><option value="25">25 FPS</option><option value="30">30 FPS</option></select></label>
+      <p class="notice">Processing stays on this machine through local CLIP. The visualizer does not offer OpenAI analysis, publishing, sharing, or approval controls.</p>
+      <button id="start" type="button">Start inspection</button>
+    </section>
+    <section id="status" class="panel status" aria-live="polite"><p class="muted">Choose a video to begin.</p></section>
+    <section id="results" class="results" hidden>
+      <div class="results-heading"><div><p class="eyebrow">Review candidates</p><h2>Ranked stills</h2></div><p class="muted">Scores are heuristic ranking signals.</p></div>
+      <div id="candidate-grid" class="candidate-grid"></div>
+      <div id="failures" class="diagnostics"></div>
+    </section>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
