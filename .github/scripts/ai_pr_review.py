@@ -28,7 +28,7 @@ MARKER = "<!-- opencode-go-ai-review -->"
 DEFAULT_MAX_DIFF_BYTES = 400_000
 DEFAULT_MAX_DIFF_LINES = 20_000
 DEFAULT_MAX_REVIEW_CALLS = 8
-DEFAULT_MAX_OUTPUT_TOKENS = 16_000
+DEFAULT_MAX_OUTPUT_TOKENS = 32_000
 DEFAULT_REVIEW_BUDGET_SECONDS = 540
 MAX_CHUNK_FINDINGS = 5
 MAX_FINDINGS = 20
@@ -192,7 +192,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
     max_diff_lines = _positive_int(values, "OPENCODE_GO_MAX_DIFF_LINES", DEFAULT_MAX_DIFF_LINES, 20_000)
     max_review_calls = _positive_int(values, "OPENCODE_GO_MAX_REVIEW_CALLS", DEFAULT_MAX_REVIEW_CALLS, 32)
     max_output_tokens = _positive_int(
-        values, "OPENCODE_GO_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 16_000
+        values, "OPENCODE_GO_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 32_000
     )
     review_budget_seconds = _positive_int(
         values, "OPENCODE_GO_REVIEW_BUDGET_SECONDS", DEFAULT_REVIEW_BUDGET_SECONDS, 600
