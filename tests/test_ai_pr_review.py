@@ -91,7 +91,8 @@ class ConfigurationTests(unittest.TestCase):
     def test_defaults_use_bounded_chunk_and_output_budgets(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = make_config(tmpdir)
-        self.assertEqual(config.max_diff_bytes, 48_000)
+        self.assertEqual(config.max_diff_bytes, 400_000)
+        self.assertEqual(config.max_diff_lines, 20_000)
         self.assertEqual(config.max_output_tokens, 16_000)
 
     def test_invalid_endpoint_protocol_pair_is_rejected(self):
