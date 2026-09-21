@@ -191,7 +191,8 @@ To enable the workflow, configure the following outside the repository:
   `OPENCODE_GO_MAX_REVIEW_CALLS` repository or organization variable can lower
   or raise that ceiling up to 32; reviews fail rather than silently omitting
   diff content when the ceiling is exceeded.
-- Provider calls default to a 180-second timeout. Set `OPENCODE_GO_TIMEOUT` as a
+- Provider calls default to a 540-second timeout, matching the aggregate review
+  budget. Set `OPENCODE_GO_TIMEOUT` as a
   repository or organization variable when the selected model needs more or less
   time, within the allowed 1-to-600-second range.
 - The reviewer reserves a 60-second safety margin inside the 10-minute GitHub
