@@ -8,7 +8,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from .analyzers import AnalyzerProtocol, create_analyzer
 from .core import run_analysis
@@ -192,6 +192,7 @@ def _process_manifest(
     analyzer: Optional[AnalyzerProtocol] = None,
     analyzer_model: Optional[str] = None,
     output_format: str = "text",
+    lifecycle_callback: Optional[Callable[[str], None]] = None,
 ) -> List[FrameOutcome]:
     """Run the existing analysis workflow over a complete frame manifest."""
 
@@ -237,9 +238,12 @@ def _process_manifest(
         destination = Path(output_dir) if output_dir else parent / "clearest_frames"
         copied = copy_top_frames(manifest, run.outcomes, destination, top_n)
 
+    if lifecycle_callback is not None:
+        lifecycle_callback("analysis_complete")
+
     if output_format == "json":
         print(json.dumps(result_document(run.outcomes, top_n), indent=2, sort_keys=True))
-    else:
+    elif output_format != "none":
         print("Found %s frames" % len(manifest.items))
         print("Saved results to %s" % results_path)
         print("Copied %s successful top frame(s)" % copied)
@@ -274,6 +278,7 @@ def process_frames(
     analyzer: Optional[AnalyzerProtocol] = None,
     analyzer_model: Optional[str] = None,
     output_format: str = "text",
+    lifecycle_callback: Optional[Callable[[str], None]] = None,
 ) -> List[FrameOutcome]:
     """Preserve the original callable entry point while using the core layers."""
 
@@ -298,6 +303,7 @@ def process_frames(
         analyzer=analyzer,
         analyzer_model=analyzer_model,
         output_format=output_format,
+        lifecycle_callback=lifecycle_callback,
     )
 
 
@@ -324,9 +330,13 @@ def process_video(
     extraction_dir: Optional[str] = None,
     sample_fps: float = DEFAULT_SAMPLE_FPS,
     runner: Optional[VideoMediaRunner] = None,
+    lifecycle_callback: Optional[Callable[[str], None]] = None,
 ) -> List[FrameOutcome]:
     """Extract a local video, then run the existing frame analysis workflow."""
 
+    if lifecycle_callback is not None:
+        lifecycle_callback("validation")
+        lifecycle_callback("extraction")
     extraction = extract_video(
         Path(video_path),
         extraction_dir=Path(extraction_dir) if extraction_dir else None,
@@ -340,6 +350,8 @@ def process_video(
         provenance_by_filename=extraction.provenance_by_filename,
         identity_context=extraction.extraction_id,
     )
+    if lifecycle_callback is not None:
+        lifecycle_callback("analysis")
     return _process_manifest(
         manifest,
         output_dir=output_dir,
@@ -360,6 +372,7 @@ def process_video(
         analyzer=analyzer,
         analyzer_model=analyzer_model,
         output_format=output_format,
+        lifecycle_callback=lifecycle_callback,
     )
 
 
