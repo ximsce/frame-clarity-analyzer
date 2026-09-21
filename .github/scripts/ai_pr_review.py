@@ -223,9 +223,9 @@ def _request_timeout(config: ReviewConfig, deadline: Optional[float]) -> int:
     if deadline is None:
         return config.timeout
     remaining = deadline - time.monotonic()
-    if remaining <= 0:
+    if remaining < 1:
         raise ReviewError("OpenCode Go review budget is exhausted")
-    return max(1, min(config.timeout, int(math.ceil(remaining))))
+    return min(config.timeout, int(math.ceil(remaining)))
 
 
 def _http_request(
@@ -1050,6 +1050,7 @@ def review_diff(
     )
     reviews: List[Review] = []
     for index, chunk in enumerate(chunks, start=1):
+        request_timeout = _request_timeout(config, deadline)
         try:
             reviews.append(
                 call_opencode(
@@ -1057,7 +1058,7 @@ def review_diff(
                     build_prompt(chunk, guidance),
                     "%s-chunk-%s-of-%s" % (session_id, index, len(chunks)),
                     opener,
-                    _request_timeout(config, deadline),
+                    request_timeout,
                 )
             )
         except ReviewError as exc:

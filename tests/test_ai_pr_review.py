@@ -52,6 +52,12 @@ class FakeOpener:
         return FakeResponse(response)
 
 
+class SlowOpener(FakeOpener):
+    def __call__(self, request, timeout):
+        time.sleep(0.2)
+        return super().__call__(request, timeout)
+
+
 def make_config(tmpdir, **overrides):
     repository = overrides.pop("repository", "owner/repo")
     event = {
@@ -287,6 +293,35 @@ class ProviderTests(unittest.TestCase):
             )
         self.assertEqual(opener.requests, [])
 
+    def test_subsecond_review_budget_is_exhausted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "budget is exhausted"):
+            ai_pr_review._request_timeout(config, time.monotonic() + 0.5)
+
+    def test_budget_exhaustion_after_a_chunk_is_not_wrapped_or_retried(self):
+        diff = (
+            "diff --git a/one.py b/one.py\n"
+            "--- a/one.py\n+++ b/one.py\n@@ -1 +1 @@\n+one\n"
+            "diff --git a/two.py b/two.py\n"
+            "--- a/two.py\n+++ b/two.py\n@@ -1 +1 @@\n+two\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = replace(make_config(tmpdir), max_diff_bytes=100, max_diff_lines=100, max_review_calls=4)
+        response = {"choices": [{"message": {"content": '{"summary":"ok","findings":[]}'}}]}
+        opener = SlowOpener([response, response])
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "budget is exhausted") as context:
+            ai_pr_review.review_diff(
+                config,
+                diff,
+                "guidance",
+                "session-budget-after-chunk",
+                opener,
+                deadline=time.monotonic() + 1.1,
+            )
+        self.assertNotIn("Review chunk 2/2", str(context.exception))
+        self.assertEqual(len(opener.requests), 1)
+
     def test_chat_request_and_response_are_validated(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = make_config(tmpdir)
@@ -499,6 +534,32 @@ class CommentTests(unittest.TestCase):
         request, _ = opener.requests[1]
         self.assertEqual(request.method, "POST")
         self.assertTrue(request.full_url.endswith("/issues/7/comments"))
+
+    def test_publish_comment_requests_are_bounded_by_deadline(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        opener = FakeOpener([[], {}])
+        ai_pr_review.publish_comment(
+            config,
+            "new body",
+            opener,
+            deadline=time.monotonic() + 3,
+        )
+        self.assertEqual(len(opener.requests), 2)
+        self.assertTrue(all(0 < timeout <= 3 for _, timeout in opener.requests))
+
+    def test_publish_comment_rejects_exhausted_deadline_before_listing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = make_config(tmpdir)
+        opener = FakeOpener([])
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "budget is exhausted"):
+            ai_pr_review.publish_comment(
+                config,
+                "new body",
+                opener,
+                deadline=time.monotonic() - 1,
+            )
+        self.assertEqual(opener.requests, [])
 
 
 class WorkflowTests(unittest.TestCase):
