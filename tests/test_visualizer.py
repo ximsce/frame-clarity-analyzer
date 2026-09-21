@@ -19,7 +19,7 @@ from frame_clarity.visualizer import (
 )
 
 
-def _write_fake_result(workspace, failed=False):
+def _write_fake_result(workspace, failed=False, skipped=False):
     workspace.extraction.mkdir(parents=True, exist_ok=True)
     workspace.candidates.mkdir(parents=True, exist_ok=True)
     (workspace.extraction / "video_extraction_manifest.json").write_text("{}", encoding="utf-8")
@@ -53,16 +53,27 @@ def _write_fake_result(workspace, failed=False):
             "status": "failed",
             "score": None,
             "reasoning": "",
-            "error": "bad frame",
+            "error": "bad frame: /private/model-cache/weights.bin",
             "attempts": 1,
+        })
+    if skipped:
+        frames.append({
+            "filename": "rawFrames000005.png",
+            "frame_index": 5,
+            "status": "skipped",
+            "score": None,
+            "reasoning": "",
+            "error": "not eligible for analysis",
+            "attempts": 0,
         })
     workspace.progress.write_text(json.dumps({"frames": frames}), encoding="utf-8")
     workspace.results.write_text(json.dumps({"frames": frames}), encoding="utf-8")
 
 
 class FakeWorkflow:
-    def __init__(self, failed=False):
+    def __init__(self, failed=False, skipped=False):
         self.failed = failed
+        self.skipped = skipped
         self.calls = []
 
     def __call__(self, source, workspace, sample_fps, on_phase):
@@ -70,7 +81,7 @@ class FakeWorkflow:
         on_phase("validation")
         on_phase("extraction")
         on_phase("analysis")
-        _write_fake_result(workspace, failed=self.failed)
+        _write_fake_result(workspace, failed=self.failed, skipped=self.skipped)
         if self.failed:
             raise RuntimeError("unexpected details should not be exposed")
 
@@ -174,7 +185,54 @@ class VisualizerTests(unittest.TestCase):
         result = coordinator.results(record.run_id)
         self.assertEqual(len(result["candidates"]), 3)
         self.assertEqual(len(result["failed"]), 1)
+        self.assertEqual(result["failed"][0]["error"], "bad frame: [path]")
         self.assertEqual(result["error"], "Processing failed unexpectedly")
+
+    def test_skipped_frames_are_reported_separately(self):
+        coordinator = RunCoordinator(
+            base_dir=Path(self.tempdir.name),
+            workflow=FakeWorkflow(skipped=True),
+        )
+        record = coordinator.reserve_upload("clip.mp4", 5, 5)
+        record.workspace.source.write_bytes(b"video")
+        coordinator.start(record)
+        record.worker.join(timeout=2)
+
+        result = coordinator.results(record.run_id)
+        self.assertEqual(
+            result["skipped"],
+            [{"filename": "rawFrames000005.png", "frame_index": 5, "reason": "not eligible for analysis"}],
+        )
+
+    def test_shutdown_bounds_a_stuck_worker(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def hanging_workflow(source, workspace, sample_fps, on_phase):
+            started.set()
+            release.wait()
+
+        coordinator = RunCoordinator(
+            base_dir=Path(self.tempdir.name),
+            workflow=hanging_workflow,
+        )
+        record = coordinator.reserve_upload("clip.mp4", 5, 5)
+        record.workspace.source.write_bytes(b"video")
+        coordinator.start(record)
+        self.assertTrue(started.wait(timeout=1))
+
+        import frame_clarity.visualizer as visualizer
+        original_timeout = visualizer.WORKER_SHUTDOWN_TIMEOUT_SECONDS
+        visualizer.WORKER_SHUTDOWN_TIMEOUT_SECONDS = 0.01
+        try:
+            started_at = time.monotonic()
+            coordinator.shutdown()
+            elapsed = time.monotonic() - started_at
+        finally:
+            visualizer.WORKER_SHUTDOWN_TIMEOUT_SECONDS = original_timeout
+            release.set()
+        self.assertLess(elapsed, 1.0)
+        self.assertTrue(record.workspace.root.exists())
 
     def test_clear_removes_run_workspace(self):
         status, started = self.request(

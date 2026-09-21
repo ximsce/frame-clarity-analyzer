@@ -32,6 +32,7 @@ MAX_DIAGNOSTIC_LENGTH = 1000
 MAX_FILENAME_LENGTH = 120
 MAX_DISPLAY_CANDIDATES = 12
 UPLOAD_CHUNK_SIZE = 1024 * 1024
+WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 RUN_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 
 
@@ -40,6 +41,7 @@ def _diagnostic(value: object, workspace: Optional["RunWorkspace"] = None) -> st
     if workspace is not None:
         for path in (workspace.root, workspace.source):
             message = message.replace(str(path), "[run]")
+    message = re.sub(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|/)[^\s,;]+", "[path]", message)
     return message[:MAX_DIAGNOSTIC_LENGTH]
 
 
@@ -254,7 +256,15 @@ class RunCoordinator:
     def shutdown(self) -> None:
         record = self.current()
         if record is not None and record.worker is not None:
-            record.worker.join()
+            record.worker.join(timeout=WORKER_SHUTDOWN_TIMEOUT_SECONDS)
+            if record.worker.is_alive():
+                # Python cannot safely kill a running thread. Leave its workspace
+                # intact and let the process owner force-kill a stuck worker.
+                with self._lock:
+                    if self._current is record:
+                        self._current = None
+                    record.phase = "cleared"
+                return
         with self._lock:
             if self._current is not None:
                 self._current.workspace.cleanup()
@@ -344,9 +354,17 @@ class RunCoordinator:
                     candidate["image_url"] = "%s/%s/candidates/%s" % (image_base.rstrip("/"), record.run_id, rank)
                 candidates.append(candidate)
             elif status == "failed":
-                failed.append({"filename": frame.get("filename"), "frame_index": frame.get("frame_index"), "error": frame.get("error")})
+                failed.append({
+                    "filename": frame.get("filename"),
+                    "frame_index": frame.get("frame_index"),
+                    "error": _diagnostic(frame.get("error") or "unknown frame failure", record.workspace),
+                })
             elif status == "skipped":
-                skipped.append({"filename": frame.get("filename"), "frame_index": frame.get("frame_index"), "reason": frame.get("error")})
+                skipped.append({
+                    "filename": frame.get("filename"),
+                    "frame_index": frame.get("frame_index"),
+                    "reason": _diagnostic(frame.get("error") or "frame skipped", record.workspace),
+                })
         return {
             "run_id": record.run_id,
             "phase": record.phase,

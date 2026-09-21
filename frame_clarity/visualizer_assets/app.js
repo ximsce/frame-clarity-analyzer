@@ -57,6 +57,8 @@
       timer = setInterval(() => poll(data.run_id).catch(error => { clearInterval(timer); start.disabled = false; status.innerHTML = `<p>${escapeHtml(error.message)}</p>`; }), 700);
       await poll(data.run_id);
     } catch (error) {
+      clearInterval(timer);
+      timer = null;
       start.disabled = false;
       status.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
     }
