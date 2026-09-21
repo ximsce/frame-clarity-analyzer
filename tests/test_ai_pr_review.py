@@ -469,7 +469,7 @@ class ProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = make_config(tmpdir)
         opener = FakeOpener([socket.timeout()])
-        with self.assertRaisesRegex(ai_pr_review.ReviewError, "timed out after 180 seconds"):
+        with self.assertRaisesRegex(ai_pr_review.ReviewError, "timed out after 540 seconds"):
             ai_pr_review.call_opencode(config, "prompt", "session-timeout", opener)
 
     def test_http_error_exposes_only_sanitized_provider_message(self):

@@ -187,7 +187,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
     model = values.get("OPENCODE_GO_MODEL", "").strip() or DEFAULT_MODEL
     if len(model) > 200 or any(character.isspace() for character in model):
         raise ReviewError("OPENCODE_GO_MODEL is invalid")
-    timeout = _positive_int(values, "OPENCODE_GO_TIMEOUT", 180, 600)
+    timeout = _positive_int(values, "OPENCODE_GO_TIMEOUT", 540, 600)
     max_diff_bytes = _positive_int(values, "OPENCODE_GO_MAX_DIFF_BYTES", DEFAULT_MAX_DIFF_BYTES, 1_000_000)
     max_diff_lines = _positive_int(values, "OPENCODE_GO_MAX_DIFF_LINES", DEFAULT_MAX_DIFF_LINES, 20_000)
     max_review_calls = _positive_int(values, "OPENCODE_GO_MAX_REVIEW_CALLS", DEFAULT_MAX_REVIEW_CALLS, 32)
