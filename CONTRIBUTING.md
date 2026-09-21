@@ -187,7 +187,7 @@ To enable the workflow, configure the following outside the repository:
   variables when selecting a model from another OpenCode Go API family. The
   supported protocols are `chat-completions` and `responses`.
 - Large diffs are reviewed through multiple bounded provider calls. The default
-  per-call diff budget is 48 KB and the default maximum is 8 calls. An optional
+  per-call diff budget is 400 KB and the default maximum is 8 calls. An optional
   `OPENCODE_GO_MAX_REVIEW_CALLS` repository or organization variable can lower
   or raise that ceiling up to 32; reviews fail rather than silently omitting
   diff content when the ceiling is exceeded.
