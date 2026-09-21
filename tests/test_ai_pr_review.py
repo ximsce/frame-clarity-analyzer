@@ -100,7 +100,7 @@ class ConfigurationTests(unittest.TestCase):
             config = make_config(tmpdir)
         self.assertEqual(config.max_diff_bytes, 400_000)
         self.assertEqual(config.max_diff_lines, 20_000)
-        self.assertEqual(config.max_output_tokens, 16_000)
+        self.assertEqual(config.max_output_tokens, 32_000)
         self.assertEqual(config.review_budget_seconds, 540)
 
     def test_invalid_endpoint_protocol_pair_is_rejected(self):

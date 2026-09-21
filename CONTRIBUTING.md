@@ -198,9 +198,9 @@ To enable the workflow, configure the following outside the repository:
   Actions job, giving provider review calls a default overall budget of 540
   seconds. `OPENCODE_GO_REVIEW_BUDGET_SECONDS` can tune that budget up to 600
   seconds; each request is capped by the remaining budget.
-- Model output defaults to `16,000` tokens, and each chunk is instructed to return
+- Model output defaults to `32,000` tokens, and each chunk is instructed to return
   no more than five concise findings. Set `OPENCODE_GO_MAX_OUTPUT_TOKENS` when a
-  selected model needs a different output budget, up to 16,000 tokens.
+  selected model needs a different output budget, up to 32,000 tokens.
 - The reviewer sends the compact trusted context in `.github/reviewer-guidance.md`
   rather than the full `CONTRIBUTING.md` and `ARCHITECTURE.md` documents.
 
