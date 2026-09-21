@@ -191,3 +191,23 @@ time and concurrency policy appropriate for repeated pull-request activity.
   timeout
 - **THEN** the job terminates and reports a sanitized failure without waiting
   indefinitely or publishing an unverified result
+
+### Requirement: Bound the aggregate review budget
+
+The workflow SHALL enforce an overall review-time budget across GitHub API calls,
+all provider chunk calls, and comment publication. Each individual request SHALL
+use no more than the time remaining in that budget, and the workflow SHALL fail
+clearly when the budget is exhausted rather than starting another request.
+
+#### Scenario: Multiple review calls share one deadline
+
+- **WHEN** a large diff is divided into multiple provider calls
+- **THEN** each call receives a timeout bounded by the remaining aggregate review
+  budget
+
+#### Scenario: Aggregate budget is exhausted
+
+- **WHEN** the remaining review budget is exhausted before the next provider or
+  GitHub request
+- **THEN** the workflow exits nonzero without starting that request or publishing
+  an incomplete review
