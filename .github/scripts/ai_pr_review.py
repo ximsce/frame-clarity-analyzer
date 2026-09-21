@@ -6,10 +6,12 @@ from __future__ import annotations
 import hashlib
 import gzip
 import json
+import math
 import os
 import re
 import socket
 import sys
+import time
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,7 @@ DEFAULT_MAX_DIFF_BYTES = 400_000
 DEFAULT_MAX_DIFF_LINES = 20_000
 DEFAULT_MAX_REVIEW_CALLS = 8
 DEFAULT_MAX_OUTPUT_TOKENS = 16_000
+DEFAULT_REVIEW_BUDGET_SECONDS = 540
 MAX_CHUNK_FINDINGS = 5
 MAX_FINDINGS = 20
 MAX_SUMMARY_LENGTH = 2_000
@@ -78,6 +81,7 @@ class ReviewConfig:
     max_diff_lines: int
     max_review_calls: int
     max_output_tokens: int
+    review_budget_seconds: int
 
 
 @dataclass(frozen=True)
@@ -190,6 +194,9 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
     max_output_tokens = _positive_int(
         values, "OPENCODE_GO_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 16_000
     )
+    review_budget_seconds = _positive_int(
+        values, "OPENCODE_GO_REVIEW_BUDGET_SECONDS", DEFAULT_REVIEW_BUDGET_SECONDS, 600
+    )
     return ReviewConfig(
         api_key=_required(values, "OPENCODE_GO_API_KEY"),
         github_token=_required(values, "GITHUB_TOKEN"),
@@ -204,11 +211,21 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> ReviewConfig:
         max_diff_lines=max_diff_lines,
         max_review_calls=max_review_calls,
         max_output_tokens=max_output_tokens,
+        review_budget_seconds=review_budget_seconds,
     )
 
 
 def _api_url(config: ReviewConfig, path: str) -> str:
     return "%s/%s" % (config.github_api_url, path.lstrip("/"))
+
+
+def _request_timeout(config: ReviewConfig, deadline: Optional[float]) -> int:
+    if deadline is None:
+        return config.timeout
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ReviewError("OpenCode Go review budget is exhausted")
+    return max(1, min(config.timeout, int(math.ceil(remaining))))
 
 
 def _http_request(
@@ -298,7 +315,9 @@ def _github_headers(token: str, accept: str = "application/vnd.github+json") -> 
 
 
 def fetch_pull_request_diff(
-    config: ReviewConfig, opener: Optional[Callable[..., Any]] = None
+    config: ReviewConfig,
+    opener: Optional[Callable[..., Any]] = None,
+    timeout: Optional[int] = None,
 ) -> str:
     path = "/repos/%s/pulls/%s" % (quote(config.repository, safe="/"), config.pull_request)
     payload = _http_request(
@@ -306,7 +325,7 @@ def fetch_pull_request_diff(
         "GET",
         _github_headers(config.github_token, "application/vnd.github.v3.diff"),
         None,
-        config.timeout,
+        timeout or config.timeout,
         opener,
     )
     try:
@@ -918,6 +937,7 @@ def call_opencode(
     prompt: str,
     session_id: str,
     opener: Optional[Callable[..., Any]] = None,
+    timeout: Optional[int] = None,
 ) -> Review:
     if config.protocol == "chat-completions":
         body: Dict[str, Any] = {
@@ -951,7 +971,7 @@ def call_opencode(
         "POST",
         headers,
         json.dumps(body, separators=(",", ":")).encode("utf-8"),
-        config.timeout,
+        timeout or config.timeout,
         opener,
         include_metadata=True,
     )
@@ -1018,6 +1038,7 @@ def review_diff(
     guidance: str,
     session_id: str,
     opener: Optional[Callable[..., Any]] = None,
+    deadline: Optional[float] = None,
 ) -> Tuple[Review, DiffSelection]:
     """Review every eligible diff chunk and merge results locally."""
 
@@ -1036,6 +1057,7 @@ def review_diff(
                     build_prompt(chunk, guidance),
                     "%s-chunk-%s-of-%s" % (session_id, index, len(chunks)),
                     opener,
+                    _request_timeout(config, deadline),
                 )
             )
         except ReviewError as exc:
@@ -1052,13 +1074,16 @@ def publish_comment(
     config: ReviewConfig,
     body: str,
     opener: Optional[Callable[..., Any]] = None,
+    timeout: Optional[int] = None,
+    deadline: Optional[float] = None,
 ) -> None:
+    request_timeout = _request_timeout(config, deadline) if deadline is not None else (timeout or config.timeout)
     list_payload = _http_request(
         _comment_url(config, "?per_page=100"),
         "GET",
         _github_headers(config.github_token),
         None,
-        config.timeout,
+        request_timeout,
         opener,
     )
     try:
@@ -1087,7 +1112,7 @@ def publish_comment(
         method,
         _github_headers(config.github_token),
         json.dumps({"body": body}, separators=(",", ":")).encode("utf-8"),
-        config.timeout,
+        _request_timeout(config, deadline) if deadline is not None else (timeout or config.timeout),
         opener,
     )
 
@@ -1101,8 +1126,9 @@ def main() -> int:
             print("Skipping fork-originated pull request")
             return 0
         config = load_config(values)
+        deadline = time.monotonic() + config.review_budget_seconds
         try:
-            diff = fetch_pull_request_diff(config)
+            diff = fetch_pull_request_diff(config, timeout=_request_timeout(config, deadline))
         except ReviewError as exc:
             raise ReviewError("GitHub diff retrieval failed: %s" % exc) from exc
         pull_request = event.get("pull_request", {})
@@ -1114,11 +1140,16 @@ def main() -> int:
                 diff,
                 guidance,
                 "github-actions-pr-%s-%s" % (config.pull_request, commit),
+                deadline=deadline,
             )
         except ReviewError as exc:
             raise ReviewError("OpenCode Go request failed: %s" % exc) from exc
         try:
-            publish_comment(config, render_comment(review, config, selection, str(commit)))
+            publish_comment(
+                config,
+                render_comment(review, config, selection, str(commit)),
+                deadline=deadline,
+            )
         except ReviewError as exc:
             raise ReviewError("GitHub comment publication failed: %s" % exc) from exc
         print("OpenCode Go advisory review posted for pull request %s" % config.pull_request)

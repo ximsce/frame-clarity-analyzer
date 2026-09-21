@@ -29,6 +29,7 @@ jobs:
       OPENCODE_GO_TIMEOUT: ${{ vars.OPENCODE_GO_TIMEOUT }}
       OPENCODE_GO_MAX_OUTPUT_TOKENS: ${{ vars.OPENCODE_GO_MAX_OUTPUT_TOKENS }}
       OPENCODE_GO_MAX_REVIEW_CALLS: ${{ vars.OPENCODE_GO_MAX_REVIEW_CALLS }}
+      OPENCODE_GO_REVIEW_BUDGET_SECONDS: ${{ vars.OPENCODE_GO_REVIEW_BUDGET_SECONDS }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - name: Checkout trusted base revision

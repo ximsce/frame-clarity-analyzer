@@ -194,6 +194,10 @@ To enable the workflow, configure the following outside the repository:
 - Provider calls default to a 180-second timeout. Set `OPENCODE_GO_TIMEOUT` as a
   repository or organization variable when the selected model needs more or less
   time, within the allowed 1-to-600-second range.
+- The reviewer reserves a 60-second safety margin inside the 10-minute GitHub
+  Actions job, giving provider review calls a default overall budget of 540
+  seconds. `OPENCODE_GO_REVIEW_BUDGET_SECONDS` can tune that budget up to 600
+  seconds; each request is capped by the remaining budget.
 - Model output defaults to `16,000` tokens, and each chunk is instructed to return
   no more than five concise findings. Set `OPENCODE_GO_MAX_OUTPUT_TOKENS` when a
   selected model needs a different output budget, up to 16,000 tokens.
