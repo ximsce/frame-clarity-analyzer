@@ -272,6 +272,25 @@ Engineering controls for this phase include:
   guarantees, including restrictions on training use, before customer imagery is
   sent outside the local environment.
 
+### Evidence-Based Limits
+
+Numeric limits are architecture decisions, not incidental implementation
+constants. A limit on request bytes, model context, output tokens, upload size,
+frame count, timeout, retries, concurrency, or resource use MUST have a recorded
+basis in one of the following:
+
+- an official provider, model, or tool document;
+- a product or business requirement;
+- a measured resource or platform constraint; or
+- an explicit technical-owner decision.
+
+Contributors and agents MUST NOT invent a limit merely because it feels safe.
+When the external maximum is undocumented, use a clearly labeled provisional
+application budget, make it configurable when practical, document its rationale,
+and record a revisit trigger. Documentation must distinguish vendor maximums,
+application safety budgets, and aggregate workflow deadlines. A per-request
+timeout must not be mistaken for the total job budget.
+
 Known current-phase hardening gaps include symlink handling, resource limits,
 concurrent-run coordination, provider timeout and cost budgets, and transactional
 coordination between JSON results and copied frames. They are documented risks,
@@ -299,6 +318,24 @@ Operational behavior must remain diagnosable without exposing sensitive content:
 - Model/provider credentials and raw prompts containing sensitive details are not
   persisted.
 - Progress and results remain human-readable JSON with stable ordering.
+
+Every third-party integration MUST expose enough sanitized diagnostic metadata to
+identify the failure layer without disclosing sensitive content. This applies to
+LLM and OpenAI-compatible requests, GitHub and other service APIs, FFmpeg and
+ffprobe, and local analyzers or model runtimes such as CLIP. Diagnostics should
+separate:
+
+- transport failures, HTTP status, timeout, retry, and remaining-budget state;
+- response-envelope or protocol failures;
+- malformed, truncated, or semantically invalid model/API output; and
+- local process failures, exit status, and bounded stderr.
+
+Useful metadata may include the provider or executable identity, selected
+protocol/model, content type, request or correlation ID, completion reason,
+output shape, byte/token counts, and sanitized local paths. Raw prompts, diffs,
+model output, credentials, media, and unredacted absolute paths must not be
+logged or returned to users. Default tests should exercise each diagnostic class
+with fakes or mocks rather than requiring live services.
 
 Future reliability work in this phase may address stale copied outputs, atomic
 publication of derived artifacts, input mutation during a run, concurrent runs
